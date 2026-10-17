@@ -1,3 +1,5 @@
+import { lookup } from "node:dns/promises";
+import { BlockList, isIP } from "node:net";
 import type { OutfitPlan } from "./format.js";
 
 export interface CreaoOutcome {
@@ -23,6 +25,8 @@ export interface CreaoClientOptions {
   pollIntervalMs?: number;
   developerBaseUrl?: string;
   appBaseUrl?: string;
+  /** Resolves a hostname to IP addresses; injectable for tests. */
+  resolveHost?: (hostname: string) => Promise<string[]>;
 }
 
 type Json = Record<string, unknown>;
@@ -154,26 +158,37 @@ export class CreaoClient {
   }
 
   private async download(url: string, signal: AbortSignal): Promise<unknown> {
+    const api = new URL(this.base);
     let target = new URL(url);
-    if (!isCreaoHost(target, new URL(this.base))) throw new CreaoError("artifact_untrusted_host");
-    let withKey = true;
+    if (!isCreaoHost(target, api)) throw new CreaoError("artifact_untrusted_host");
     for (let hop = 0; ; hop++) {
+      if (!(await this.resolvesPublic(target.hostname))) throw new CreaoError("artifact_private_address");
       const res = await this.fetch(target, {
         signal,
         redirect: "manual",
-        // Never forward the API key beyond Creao's own origin.
-        headers: withKey ? { Authorization: `Bearer ${this.opts.apiKey}` } : {},
+        // The bearer token only ever goes to the configured API origin.
+        headers: target.origin === api.origin ? { Authorization: `Bearer ${this.opts.apiKey}` } : {},
       });
       const location = res.headers.get("location");
       if (res.status >= 300 && res.status < 400 && location) {
         if (hop >= 3) throw new CreaoError("artifact_too_many_redirects");
         target = new URL(location, target);
         if (!isSafePublicUrl(target)) throw new CreaoError("artifact_untrusted_redirect");
-        withKey = false;
         continue;
       }
       if (!res.ok) throw new CreaoError(`artifact_http_${res.status}`);
       return JSON.parse(await res.text());
+    }
+  }
+
+  private async resolvesPublic(hostname: string): Promise<boolean> {
+    const resolve =
+      this.opts.resolveHost ?? (async (h: string) => (await lookup(h, { all: true, verbatim: true })).map((a) => a.address));
+    try {
+      const addresses = await resolve(hostname);
+      return addresses.length > 0 && addresses.every(isPublicAddress);
+    } catch {
+      return false;
     }
   }
 
@@ -223,6 +238,29 @@ export function isSafePublicUrl(url: URL): boolean {
   if (host.startsWith("[") || /^\d+(\.\d+){3}$/.test(host) || /^\d+$/.test(host)) return false;
   if (!host.includes(".")) return false;
   return !/(^|\.)(localhost|internal|local|localdomain|intranet|corp|home|lan)$/.test(host);
+}
+
+const PRIVATE_RANGES = (() => {
+  const list = new BlockList();
+  for (const [net, prefix] of [
+    ["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8], ["169.254.0.0", 16],
+    ["172.16.0.0", 12], ["192.0.0.0", 24], ["192.168.0.0", 16], ["198.18.0.0", 15], ["224.0.0.0", 3],
+  ] as const) list.addSubnet(net, prefix, "ipv4");
+  for (const [net, prefix] of [
+    ["::", 127], ["64:ff9b::", 96], ["fc00::", 7], ["fe80::", 10], ["ff00::", 8],
+  ] as const) list.addSubnet(net, prefix, "ipv6");
+  return list;
+})();
+
+/** True for globally routable unicast addresses only. */
+export function isPublicAddress(address: string): boolean {
+  // IPv4-mapped IPv6 (::ffff:a.b.c.d): judge the embedded IPv4 address.
+  const mapped = address.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+  if (mapped) return isPublicAddress(mapped[1]!);
+  if (/^::ffff:/i.test(address)) return false;
+  const family = isIP(address);
+  if (family === 0) return false;
+  return !PRIVATE_RANGES.check(address, family === 4 ? "ipv4" : "ipv6");
 }
 
 function isTransient(code: string): boolean {

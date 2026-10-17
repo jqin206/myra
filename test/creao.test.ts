@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { CreaoClient, CreaoError } from "../src/creao.js";
+import { CreaoClient, CreaoError, isPublicAddress } from "../src/creao.js";
 import example from "./fixtures/creao-example.json" with { type: "json" };
 import wrapped from "./fixtures/creao-wrapped.json" with { type: "json" };
 
@@ -17,6 +17,7 @@ function mockFetch(route: Route) {
   return { fetch: fetch as unknown as typeof globalThis.fetch, calls };
 }
 
+const publicDns = async () => ["104.18.0.1"];
 const input = { request: "Today is …", temp_unit: "fahrenheit" };
 const signal = () => new AbortController().signal;
 
@@ -43,7 +44,7 @@ describe("CreaoClient (capi_ app-scoped key)", () => {
       if (url.includes("/artifacts/download")) return json(example);
       throw new Error(`unexpected ${url}`);
     });
-    const client = new CreaoClient({ apiKey: "capi_test", agentId: "app_1", fetch, pollIntervalMs: 1 });
+    const client = new CreaoClient({ apiKey: "capi_test", agentId: "app_1", fetch, pollIntervalMs: 1, resolveHost: publicDns });
     const outcome = await client.run(input, signal());
     expect(outcome.runId).toBe("run_1");
     expect(outcome.conversationId).toBe("thr_1");
@@ -60,7 +61,7 @@ describe("CreaoClient (capi_ app-scoped key)", () => {
       if (url === "https://storage.example.com/a.json") return json(example);
       throw new Error(`unexpected ${url}`);
     });
-    const outcome = await new CreaoClient({ apiKey: "capi_test", agentId: "app_1", fetch }).run(input, signal());
+    const outcome = await new CreaoClient({ apiKey: "capi_test", agentId: "app_1", fetch, resolveHost: publicDns }).run(input, signal());
     expect(outcome.plan.outfits).toHaveLength(3);
     const storage = calls.find((c) => c.url.startsWith("https://storage"))!;
     expect(JSON.stringify(storage.init.headers ?? {})).not.toContain("capi_test");
@@ -84,7 +85,7 @@ describe("CreaoClient artifact URL safety", () => {
     "refuses to fetch artifact %s",
     async (url) => {
       const { fetch, calls } = mockFetch(completedWith(url));
-      const outcome = await new CreaoClient({ apiKey: "capi_x", agentId: "a", fetch }).run(input, signal());
+      const outcome = await new CreaoClient({ apiKey: "capi_x", agentId: "a", fetch, resolveHost: publicDns }).run(input, signal());
       expect(calls.map((c) => c.url)).not.toContain(url);
       expect(outcome.plan.outfits).toBeUndefined();
     },
@@ -98,10 +99,43 @@ describe("CreaoClient artifact URL safety", () => {
         if (url === "https://agent.creao.ai/dl") return new Response(null, { status: 302, headers: { location } });
         return json(example);
       });
-      await new CreaoClient({ apiKey: "capi_x", agentId: "a", fetch }).run(input, signal());
+      await new CreaoClient({ apiKey: "capi_x", agentId: "a", fetch, resolveHost: publicDns }).run(input, signal());
       expect(calls).toHaveLength(2);
     },
   );
+});
+
+describe("CreaoClient artifact DNS / key scoping", () => {
+  const artifactRun = (url: string) => (u: string, init: RequestInit) =>
+    init.method === "POST"
+      ? json({ id: "r1", status: "completed", result: { artifacts: [{ id: "a.json", type: "application/json", url }] } })
+      : u === "https://agent.creao.ai/dl"
+        ? new Response(null, { status: 302, headers: { location: "https://storage.example.com/a.json" } })
+        : json(example);
+
+  it("refuses redirects to public-looking hosts that resolve to private addresses", async () => {
+    const { fetch, calls } = mockFetch(artifactRun("https://agent.creao.ai/dl"));
+    const resolveHost = async (h: string) => (h === "storage.example.com" ? ["10.1.2.3"] : ["104.18.0.1"]);
+    const outcome = await new CreaoClient({ apiKey: "capi_x", agentId: "a", fetch, resolveHost }).run(input, signal());
+    expect(calls.map((c) => c.url)).not.toContain("https://storage.example.com/a.json");
+    expect(outcome.plan.outfits).toBeUndefined();
+  });
+
+  it("only sends the API key to the configured API origin", async () => {
+    const { fetch, calls } = mockFetch(artifactRun("https://files.creao.ai/a.json"));
+    const outcome = await new CreaoClient({ apiKey: "capi_secret", agentId: "a", fetch, resolveHost: publicDns }).run(input, signal());
+    expect(outcome.plan.outfits).toHaveLength(3);
+    const artifact = calls.find((c) => c.url === "https://files.creao.ai/a.json")!;
+    expect(JSON.stringify(artifact.init.headers ?? {})).not.toContain("capi_secret");
+  });
+
+  it.each([
+    ["8.8.8.8", true], ["2606:4700::1111", true], ["10.0.0.1", false], ["127.0.0.1", false], ["169.254.169.254", false],
+    ["172.20.1.1", false], ["192.168.1.1", false], ["100.64.0.1", false], ["::1", false], ["fd00::1", false],
+    ["fe80::1", false], ["::ffff:127.0.0.1", false], ["not-an-ip", false],
+  ])("isPublicAddress(%s) = %s", (address, expected) => {
+    expect(isPublicAddress(address)).toBe(expected);
+  });
 });
 
 describe("CreaoClient (cr_sk_ CLI key)", () => {
@@ -146,7 +180,7 @@ describe("CreaoClient errors", () => {
 
   it("throws on failed runs", async () => {
     const { fetch } = mockFetch(() => json({ id: "r1", status: "failed", error: { code: "AGENT_ERROR" } }));
-    await expect(new CreaoClient({ apiKey: "capi_x", agentId: "a", fetch }).run(input, signal())).rejects.toMatchObject({
+    await expect(new CreaoClient({ apiKey: "capi_x", agentId: "a", fetch, resolveHost: publicDns }).run(input, signal())).rejects.toMatchObject({
       code: "run_failed:AGENT_ERROR",
       runId: "r1",
     });
@@ -154,7 +188,7 @@ describe("CreaoClient errors", () => {
 
   it("throws on auth errors without retrying", async () => {
     const { fetch, calls } = mockFetch(() => json({ error: "AUTHENTICATION_REQUIRED" }, 401));
-    await expect(new CreaoClient({ apiKey: "capi_x", agentId: "a", fetch }).run(input, signal())).rejects.toBeInstanceOf(CreaoError);
+    await expect(new CreaoClient({ apiKey: "capi_x", agentId: "a", fetch, resolveHost: publicDns }).run(input, signal())).rejects.toBeInstanceOf(CreaoError);
     expect(calls).toHaveLength(1);
   });
 
