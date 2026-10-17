@@ -16,7 +16,7 @@ iPhone ──iMessage──▶ Photon ──Socket.IO "delivery"──▶ myra �
 2. Answers only `message.received` events that are iMessage, direct (1:1), sent by a human and received by an agent. It never starts a conversation and never answers its own messages. Non-text messages get "I can only read text right now — just type out your plans!".
 3. Claims the message in `processed_messages` so it is answered exactly once, even across restarts, replays, and overlapping deploys.
 4. Builds the Creao request: today's date in the user's timezone, up to 10 of the user's messages from the last 30 days, and the current message.
-5. Starts a Creao run and polls it. If there's no result after 8 s it sends "Checking the forecast for you — one sec…". It gives up after 60 s and sends a friendly error.
+5. Replies "Analyzing your input..." straight away, then starts a Creao run and polls it. The request asks for one outfit per day. If there's no result after 3 minutes it cancels the run (best effort) and sends "Sorry, your request timed out. Please try again". If the message mentions a temperature unit ("use Celsius", "°F"), that preference is saved for the user and used for all later replies. A message that only sets the unit gets a short confirmation and no Creao run.
 6. Formats the outfits as plain text (split after an outfit block when the reply is over ~1,200 characters). Replies use the idempotency keys `reply:<message id>`, `reply:<message id>:<n>` and `reply:<message id>:interim`.
 7. Stores the message for history, marks it handled, and only then advances the Photon cursor.
 
@@ -33,10 +33,10 @@ Messages from different conversations are handled in parallel. Messages from the
 | `CREAO_AGENT_ID` | yes | Creao agent/app ID. |
 | `DATABASE_URL` | yes | Postgres connection string. TLS is verified for remote hosts. localhost and `*.railway.internal` connect without TLS. Append `?sslmode=no-verify` only if you must accept an unverified certificate. |
 | `DEFAULT_TIMEZONE` | no | IANA timezone for users without one. Default `America/Los_Angeles`. |
-| `DEFAULT_TEMP_UNIT` | no | `fahrenheit` or `celsius`. Default `fahrenheit`. |
+| `DEFAULT_TEMP_UNIT` | no | `fahrenheit` or `celsius`, used until a user states a preference. Default `fahrenheit`. |
 | `PORT` | no | Port for `GET /health`. Default `8080` (Railway sets it). |
 | `PHOTON_API_ORIGIN` | no | Default `https://api.photon.codes`. |
-| `CREAO_TIMEOUT_MS` / `CREAO_INTERIM_AFTER_MS` | no | Defaults `60000` / `8000`. |
+| `CREAO_TIMEOUT_MS` | no | How long to wait for Creao before cancelling the run and sending the timeout reply. Default `180000` (3 min). |
 | `RAILWAY_TOKEN` | deploy only | Used by the Railway CLI, not by the server. |
 
 Secrets are only read from the environment. Logs contain IDs and statuses, never message text or keys.

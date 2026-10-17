@@ -11,7 +11,6 @@ export interface Config {
   defaultTempUnit: string;
   port: number;
   creaoTimeoutMs: number;
-  interimAfterMs: number;
   cursorConsumer: string;
 }
 
@@ -51,8 +50,7 @@ export function loadConfig(): Config {
     defaultTimezone,
     defaultTempUnit: optional("DEFAULT_TEMP_UNIT") ?? "fahrenheit",
     port: int("PORT", 8080),
-    creaoTimeoutMs: int("CREAO_TIMEOUT_MS", 60_000),
-    interimAfterMs: int("CREAO_INTERIM_AFTER_MS", 8_000),
+    creaoTimeoutMs: int("CREAO_TIMEOUT_MS", 180_000),
     cursorConsumer: optional("CURSOR_CONSUMER") ?? "outfit-relay",
   };
 }

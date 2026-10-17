@@ -183,6 +183,10 @@ export async function upsertUser(
   return { timezone: res.rows[0]?.timezone ?? null, tempUnit: res.rows[0]?.temp_unit ?? null };
 }
 
+export async function setTempUnit(db: Queryable, spaceId: string, unit: string): Promise<void> {
+  await db.query(`UPDATE users SET temp_unit = $2, updated_at = now() WHERE space_id = $1`, [spaceId, unit]);
+}
+
 export async function recordCreaoRun(
   db: Queryable,
   run: {

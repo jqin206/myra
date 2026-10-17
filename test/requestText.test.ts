@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRequestText, formatToday } from "../src/requestText.js";
+import { buildRequestText, formatToday, PER_DAY_INSTRUCTION } from "../src/requestText.js";
 
 const now = new Date("2026-10-17T22:48:00Z");
 
@@ -25,7 +25,7 @@ describe("buildRequestText", () => {
   it("omits the history section when there is none", () => {
     const text = buildRequestText({ now, timeZone: "America/Los_Angeles", history: [], current: "Austin this Saturday" });
     expect(text).toBe(
-      'Today is Saturday, October 17, 2026 (America/Los_Angeles).\n\nCurrent message:\n"Austin this Saturday"',
+      `Today is Saturday, October 17, 2026 (America/Los_Angeles).\n\nCurrent message:\n"Austin this Saturday"\n\n${PER_DAY_INSTRUCTION}`,
     );
   });
 
@@ -46,6 +46,8 @@ describe("buildRequestText", () => {
         "",
         "Current message:",
         '"actually dinner is on a rooftop"',
+        "",
+        PER_DAY_INSTRUCTION,
       ].join("\n"),
     );
   });

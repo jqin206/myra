@@ -47,8 +47,11 @@ describe("formatReply", () => {
     expect(formatReply(plan!)).toEqual(formatReply(example as OutfitPlan));
   });
 
-  it("sends the summary when outfits is empty", () => {
-    expect(formatReply(empty as OutfitPlan)).toEqual([empty.summary]);
+  it("sends Myra's help text (not Creao's summary) when outfits is empty", () => {
+    expect(formatReply(empty as OutfitPlan)).toEqual([HELP_REPLY]);
+    expect(HELP_REPLY).toBe(
+      "Hi, I'm Myra! Send me your itinerary for your next trip or your plans for the next few days, and I'll help you generate an outfit!",
+    );
   });
 
   it("falls back to the help text with no outfits and no summary", () => {
@@ -113,3 +116,19 @@ describe("weatherEmoji", () => {
     expect(text.split("\n")[1]).toBe("Volcanic ash, 80°");
   });
 });
+
+describe("formatReply one outfit per day", () => {
+  const day = (date: string, activity: string) => ({ date, activity, items: { top: "Sweater" } });
+  it("labels each outfit with its day and shows a date range when the plan spans days", () => {
+    const [text] = formatReply({ location: "New York City, NY", outfits: [day("2026-10-24", "Museums + dinner"), day("2026-10-25", "Brunch + park walk")] });
+    expect(text).toMatch(/^Sat Oct 24 – Sun Oct 25 · New York City, NY/);
+    expect(text).toContain("Sat Oct 24 · Museums + dinner");
+    expect(text).toContain("Sun Oct 25 · Brunch + park walk");
+  });
+  it("keeps the single-date header when every outfit is on the same day", () => {
+    const [text] = formatReply({ date: "2026-10-24", outfits: [day("2026-10-24", "Brunch")] });
+    expect(text).toMatch(/^Sat Oct 24\n/);
+    expect(text).toContain("\nBrunch\n");
+  });
+});
+

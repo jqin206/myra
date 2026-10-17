@@ -1,6 +1,7 @@
 import { lookup } from "node:dns/promises";
 import { BlockList, isIP } from "node:net";
 import type { OutfitPlan } from "./format.js";
+import { errorCode, log } from "./log.js";
 
 export interface CreaoOutcome {
   plan: OutfitPlan;
@@ -117,15 +118,23 @@ export class CreaoClient {
       throw new CreaoError("unexpected_response", runId);
     }
 
-    while (!TERMINAL.has(status()!)) {
-      await sleep(this.pollIntervalMs, signal);
-      try {
-        run = await this.request("GET", `${this.base}/${encodeURIComponent(runId)}`, signal);
-      } catch (error) {
-        // Transient poll failures (rate limits, 5xx, network) just mean "ask again later".
-        if (signal.aborted || (error instanceof CreaoError && !isTransient(error.code))) throw error;
+    try {
+      while (!TERMINAL.has(status()!)) {
+        await sleep(this.pollIntervalMs, signal);
+        try {
+          run = await this.request("GET", `${this.base}/${encodeURIComponent(runId)}`, signal);
+        } catch (error) {
+          // Transient poll failures (rate limits, 5xx, network) just mean "ask again later".
+          if (signal.aborted || (error instanceof CreaoError && !isTransient(error.code))) throw error;
+        }
+        conversationId ??= str(run.conversation_id) ?? str(run.threadId);
       }
-      conversationId ??= str(run.conversation_id) ?? str(run.threadId);
+    } catch (error) {
+      if (!signal.aborted) throw error;
+      // We stopped waiting (timeout/shutdown): don't let the run keep spending credits.
+      void this.cancel(runId);
+      const reason = signal.reason;
+      throw new CreaoError(reason instanceof CreaoError ? reason.code : "aborted", runId);
     }
     if (status() !== "completed") {
       const err = isObj(run.error) ? str(run.error.code) : str(run.errorCode);
@@ -155,6 +164,24 @@ export class CreaoClient {
       }
     }
     return undefined;
+  }
+
+  /** Best-effort cancel of a run we no longer need. Never throws. */
+  async cancel(runId: string): Promise<boolean> {
+    try {
+      const res = await this.fetch(`${this.base}/${encodeURIComponent(runId)}/cancel`, {
+        method: "POST",
+        signal: AbortSignal.timeout(10_000),
+        headers: { Authorization: `Bearer ${this.opts.apiKey}`, "Content-Type": "application/json" },
+        body: "{}",
+      });
+      if (res.ok) log.info("creao_run_cancelled", { runId });
+      else log.warn("creao_cancel_failed", { runId, status: res.status });
+      return res.ok;
+    } catch (error) {
+      log.warn("creao_cancel_failed", { runId, error: errorCode(error) });
+      return false;
+    }
   }
 
   private async download(url: string, signal: AbortSignal): Promise<unknown> {

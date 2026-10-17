@@ -21,7 +21,6 @@ async function main(): Promise<void> {
     owner: `${process.env.RAILWAY_REPLICA_ID ?? "local"}:${randomUUID()}`,
     defaultTimezone: config.defaultTimezone,
     defaultTempUnit: config.defaultTempUnit,
-    interimAfterMs: config.interimAfterMs,
     timeoutMs: config.creaoTimeoutMs,
   };
 

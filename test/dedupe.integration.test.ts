@@ -2,7 +2,7 @@ import pg from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { CreaoError } from "../src/creao.js";
 import { claimMessage, loadCursor, migrate, saveCursor } from "../src/db.js";
-import { ERROR_REPLY, INTERIM_REPLY, TEXT_ONLY_REPLY } from "../src/format.js";
+import { ERROR_REPLY, INTERIM_REPLY, TEXT_ONLY_REPLY, TIMEOUT_REPLY } from "../src/format.js";
 import { handleIncoming, type HandlerDeps, type Planner } from "../src/handler.js";
 import type { IncomingText } from "../src/incoming.js";
 import example from "./fixtures/creao-example.json" with { type: "json" };
@@ -43,7 +43,6 @@ d("dedupe / idempotency (Postgres)", () => {
     owner: "test-a",
     defaultTimezone: "America/Los_Angeles",
     defaultTempUnit: "fahrenheit",
-    interimAfterMs: 8000,
     timeoutMs: 60000,
     claimRetryMs: 10,
     now: () => new Date("2026-10-17T22:48:00Z"),
@@ -63,8 +62,8 @@ d("dedupe / idempotency (Postgres)", () => {
   it("replies exactly once when the same message is delivered twice", async () => {
     await handleIncoming(msg("m1"), deps());
     await handleIncoming(msg("m1"), deps());
-    expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({ idempotencyKey: "reply:m1", spaceId: "spc_1", senderId: "usr_agent", parentMessageId: "m1" });
+    expect(sent.map((s) => s.idempotencyKey)).toEqual(["reply:m1:interim", "reply:m1"]);
+    expect(sent[1]).toMatchObject({ idempotencyKey: "reply:m1", spaceId: "spc_1", senderId: "usr_agent", parentMessageId: "m1" });
     expect(requests).toHaveLength(1);
     const runs = await pool.query("SELECT run_id, status FROM creao_runs");
     expect(runs.rows).toEqual([{ run_id: "run_1", status: "completed" }]);
@@ -83,7 +82,7 @@ d("dedupe / idempotency (Postgres)", () => {
     await new Promise((r) => setTimeout(r, 50));
     release();
     await Promise.all([a, b]);
-    expect(sent.map((s) => s.idempotencyKey)).toEqual(["reply:m1"]);
+    expect(sent.map((s) => s.idempotencyKey)).toEqual(["reply:m1:interim", "reply:m1"]);
     expect(requests).toHaveLength(1);
   });
 
@@ -92,7 +91,7 @@ d("dedupe / idempotency (Postgres)", () => {
     expect(await claimMessage(pool, "m1", "spc_1", "dead-worker", 120)).toBe("claimed");
     await pool.query("UPDATE processed_messages SET claimed_at = now() - interval '10 minutes'");
     await handleIncoming(msg("m1"), deps());
-    expect(sent.map((s) => s.idempotencyKey)).toEqual(["reply:m1"]);
+    expect(sent.map((s) => s.idempotencyKey)).toEqual(["reply:m1:interim", "reply:m1"]);
     const row = await pool.query("SELECT status FROM processed_messages WHERE message_id = 'm1'");
     expect(row.rows[0].status).toBe("replied");
   });
@@ -121,15 +120,15 @@ d("dedupe / idempotency (Postgres)", () => {
     expect(requests).toHaveLength(0);
   });
 
-  it("sends the interim message, then the friendly error when Creao is unreachable", async () => {
+  it("sends the interim message, then the timeout reply when Creao doesn't answer in time", async () => {
     const down = planner(async (_input, signal) => {
       await new Promise((_r, reject) => signal.addEventListener("abort", () => reject(signal.reason)));
       throw new Error("unreachable");
     });
-    await handleIncoming(msg("m1"), deps({ planner: down, interimAfterMs: 20, timeoutMs: 80 }));
+    await handleIncoming(msg("m1"), deps({ planner: down, timeoutMs: 80 }));
     expect(sent.map((s) => [s.text, s.idempotencyKey])).toEqual([
       [INTERIM_REPLY, "reply:m1:interim"],
-      [ERROR_REPLY, "reply:m1"],
+      [TIMEOUT_REPLY, "reply:m1"],
     ]);
     const runs = await pool.query("SELECT status FROM creao_runs");
     expect(runs.rows[0].status).toBe("timeout");
@@ -140,14 +139,35 @@ d("dedupe / idempotency (Postgres)", () => {
       throw new CreaoError("http_503", "run_9");
     });
     await handleIncoming(msg("m1"), deps({ planner: failing }));
-    expect(sent.map((s) => s.text)).toEqual([ERROR_REPLY]);
+    expect(sent.map((s) => s.text)).toEqual([INTERIM_REPLY, ERROR_REPLY]);
+  });
+
+  it("sends the interim message before the outfits", async () => {
+    await handleIncoming(msg("m1"), deps());
+    expect(sent[0]).toMatchObject({ text: INTERIM_REPLY, idempotencyKey: "reply:m1:interim" });
+    expect(sent[1]!.idempotencyKey).toBe("reply:m1");
+  });
+
+  it("saves a stated temperature unit and uses it for later requests", async () => {
+    const units: string[] = [];
+    const p = planner(async (input) => {
+      units.push(input.temp_unit);
+      return { plan: example };
+    });
+    await handleIncoming(msg("m1", "use celsius please", new Date(Date.now() - 60_000).toISOString()), deps({ planner: p }));
+    expect(sent.map((s) => s.text)).toEqual(["Got it — I'll use Celsius from now on."]);
+    expect(units).toEqual([]);
+    await handleIncoming(msg("m2", "Austin this Saturday — brunch at 11"), deps({ planner: p }));
+    expect(units).toEqual(["celsius"]);
   });
 
   it("uses reply:<id>:<n> keys for split messages", async () => {
     const long = { ...example, outfits: Array.from({ length: 6 }, (_, i) => ({ ...example.outfits[0], activity: `Stop ${i}`, rationale: "x".repeat(250) })) };
     await handleIncoming(msg("m1"), deps({ planner: planner(async () => ({ plan: long })) }));
-    expect(sent.length).toBeGreaterThan(1);
-    expect(sent.map((s) => s.idempotencyKey)).toEqual(sent.map((_, i) => (i === 0 ? "reply:m1" : `reply:m1:${i + 1}`)));
+    expect(sent.length).toBeGreaterThan(2);
+    const keys = sent.map((s) => s.idempotencyKey);
+    expect(keys[0]).toBe("reply:m1:interim");
+    expect(keys.slice(1)).toEqual(keys.slice(1).map((_, i) => (i === 0 ? "reply:m1" : `reply:m1:${i + 1}`)));
   });
 
   it("only moves the cursor forward", async () => {

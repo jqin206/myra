@@ -7,6 +7,7 @@ export interface OutfitItems {
 }
 
 export interface Outfit {
+  date?: string | null;
   activity?: string | null;
   time?: string | null;
   items?: OutfitItems | null;
@@ -35,9 +36,12 @@ export interface OutfitPlan {
 
 export const TEXT_ONLY_REPLY = "I can only read text right now — just type out your plans!";
 export const HELP_REPLY =
-  "Tell me where you'll be, when, and what you're doing — e.g. 'Austin this Saturday: brunch at 11, hike, dinner downtown.'";
-export const INTERIM_REPLY = "Checking the forecast for you — one sec…";
+  "Hi, I'm Myra! Send me your itinerary for your next trip or your plans for the next few days, and I'll help you generate an outfit!";
+export const INTERIM_REPLY = "Analyzing your input...";
+export const TIMEOUT_REPLY = "Sorry, your request timed out. Please try again";
 export const ERROR_REPLY = "Sorry, I couldn't put outfits together just now. Mind sending that again in a minute?";
+export const tempUnitSavedReply = (unit: "celsius" | "fahrenheit") =>
+  `Got it — I'll use ${unit === "celsius" ? "Celsius" : "Fahrenheit"} from now on.`;
 export const SPLIT_AT = 1200;
 
 const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() ? v.trim() : undefined);
@@ -96,8 +100,8 @@ function weatherLine(w: Weather | null | undefined): string | undefined {
   return `${emoji ? `${emoji} ` : ""}${parts.join(", ")}`;
 }
 
-function outfitBlock(o: Outfit): string | undefined {
-  const head = [str(o.time), str(o.activity)].filter(Boolean).join(" · ");
+function outfitBlock(o: Outfit, showDate: boolean): string | undefined {
+  const head = [showDate ? formatPlanDate(str(o.date)) : undefined, str(o.time), str(o.activity)].filter(Boolean).join(" · ");
   const items = o.items ?? {};
   const pieces = [items.top, items.bottom, items.outerwear, items.footwear].map(piece).filter(Boolean) as string[];
   const accessories = (Array.isArray(items.accessories) ? items.accessories : [items.accessories])
@@ -156,12 +160,16 @@ function footerBlock(plan: OutfitPlan, dateShown: boolean): string | undefined {
 
 /** Returns the reply as one or more iMessage texts. */
 export function formatReply(plan: OutfitPlan, limit = SPLIT_AT): string[] {
-  const outfits = (Array.isArray(plan.outfits) ? plan.outfits : [])
-    .map((o) => (o && typeof o === "object" ? outfitBlock(o) : undefined))
-    .filter((b): b is string => !!b);
-  if (!outfits.length) return [str(plan.summary) ?? HELP_REPLY];
+  const list = (Array.isArray(plan.outfits) ? plan.outfits : []).filter((o): o is Outfit => !!o && typeof o === "object");
+  // Creao's summary for non-itinerary messages points at its own UI, so those always get our help text.
+  const days = [...new Set(list.map((o) => str(o.date)).filter((d): d is string => !!d))].sort();
+  const multiDay = days.length > 1;
+  const outfits = list.map((o) => outfitBlock(o, multiDay)).filter((b): b is string => !!b);
+  if (!outfits.length) return [HELP_REPLY];
 
-  const dateText = formatPlanDate(str(plan.date));
+  const dateText = multiDay
+    ? `${formatPlanDate(days[0])} – ${formatPlanDate(days.at(-1))}`
+    : formatPlanDate(str(plan.date) ?? days[0]);
   const title = [dateText, str(plan.location)].filter(Boolean).join(" · ");
   const header = [title || undefined, weatherLine(plan.weather)].filter(Boolean).join("\n");
   const footer = footerBlock(plan, !!dateText);

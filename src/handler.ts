@@ -4,12 +4,14 @@ import {
   finishMessage,
   recentUserMessages,
   recordCreaoRun,
+  setTempUnit,
   upsertUser,
 } from "./db.js";
 import { CreaoError, type CreaoOutcome } from "./creao.js";
-import { ERROR_REPLY, INTERIM_REPLY, TEXT_ONLY_REPLY, formatReply } from "./format.js";
+import { ERROR_REPLY, INTERIM_REPLY, TEXT_ONLY_REPLY, TIMEOUT_REPLY, formatReply, tempUnitSavedReply } from "./format.js";
 import type { Incoming } from "./incoming.js";
 import { errorCode, log } from "./log.js";
+import { detectTempUnit, isPreferenceOnly } from "./preferences.js";
 import { buildRequestText } from "./requestText.js";
 
 export interface Sender {
@@ -27,7 +29,6 @@ export interface HandlerDeps {
   owner: string;
   defaultTimezone: string;
   defaultTempUnit: string;
-  interimAfterMs: number;
   timeoutMs: number;
   leaseSeconds?: number;
   claimRetryMs?: number;
@@ -71,38 +72,47 @@ export async function handleIncoming(msg: Incoming, deps: HandlerDeps): Promise<
     return;
   }
 
+  const stored = { spaceId: msg.spaceId, text: msg.text, createdAt: msg.createdAt };
+  const unit = detectTempUnit(msg.text);
+  if (unit) await setTempUnit(deps.db, msg.spaceId, unit);
+  if (unit && isPreferenceOnly(msg.text)) {
+    await reply(tempUnitSavedReply(unit), `reply:${msg.messageId}`);
+    await finishMessage(deps.db, msg.messageId, "replied", stored);
+    log.info("replied_preference", fields);
+    return;
+  }
+  const tempUnit = unit ?? user.tempUnit ?? deps.defaultTempUnit;
+
   const timeZone = user.timezone ?? deps.defaultTimezone;
   const history = await recentUserMessages(deps.db, msg.spaceId, msg.messageId, msg.createdAt);
   const request = buildRequestText({ now: deps.now?.() ?? new Date(), timeZone, history, current: msg.text });
 
+  try {
+    await reply(INTERIM_REPLY, `reply:${msg.messageId}:interim`);
+  } catch (error) {
+    log.warn("interim_send_failed", { ...fields, error: errorCode(error) });
+  }
+
   const started = performance.now();
   const controller = new AbortController();
   const deadline = setTimeout(() => controller.abort(new CreaoError("timeout")), deps.timeoutMs);
-  let interim: Promise<void> | undefined;
-  const interimTimer = setTimeout(() => {
-    interim = reply(INTERIM_REPLY, `reply:${msg.messageId}:interim`).catch((error) => {
-      log.warn("interim_send_failed", { ...fields, error: errorCode(error) });
-    });
-  }, deps.interimAfterMs);
 
   let texts: string[];
   let outcome: CreaoOutcome | undefined;
   let status = "completed";
   try {
-    outcome = await deps.planner.run({ request, temp_unit: user.tempUnit ?? deps.defaultTempUnit }, controller.signal);
+    outcome = await deps.planner.run({ request, temp_unit: tempUnit }, controller.signal);
     texts = formatReply(outcome.plan);
   } catch (error) {
     const reason = controller.signal.aborted ? controller.signal.reason : error;
     status = reason instanceof CreaoError ? reason.code : errorCode(reason);
     outcome = { plan: {}, runId: error instanceof CreaoError ? error.runId : undefined };
-    texts = [ERROR_REPLY];
+    texts = [status === "timeout" ? TIMEOUT_REPLY : ERROR_REPLY];
     log.warn("creao_failed", { ...fields, status, runId: outcome.runId });
   } finally {
     clearTimeout(deadline);
-    clearTimeout(interimTimer);
   }
   const latencyMs = performance.now() - started;
-  await interim;
 
   await recordCreaoRun(deps.db, {
     spaceId: msg.spaceId,
@@ -116,10 +126,6 @@ export async function handleIncoming(msg: Incoming, deps: HandlerDeps): Promise<
   for (const [i, text] of texts.entries()) {
     await reply(text, i === 0 ? `reply:${msg.messageId}` : `reply:${msg.messageId}:${i + 1}`);
   }
-  await finishMessage(deps.db, msg.messageId, "replied", {
-    spaceId: msg.spaceId,
-    text: msg.text,
-    createdAt: msg.createdAt,
-  });
+  await finishMessage(deps.db, msg.messageId, "replied", stored);
   log.info("replied", { ...fields, status, parts: texts.length, latencyMs: Math.round(latencyMs), runId: outcome.runId });
 }
