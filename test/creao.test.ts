@@ -201,11 +201,10 @@ describe("CreaoClient errors", () => {
   });
 });
 
-describe("CreaoClient cancel on timeout", () => {
-  it("cancels the run when we stop waiting and reports the run id", async () => {
+describe("CreaoClient timeout", () => {
+  it("stops polling when we stop waiting and reports the run id", async () => {
     const controller = new AbortController();
     const { fetch, calls } = mockFetch((url, init) => {
-      if (init.method === "POST" && url.endsWith("/cancel")) return json({ status: "cancelled" });
       if (init.method === "POST") return json({ id: "run_7", status: "running" }, 202);
       controller.abort(new CreaoError("timeout"));
       return json({ id: "run_7", status: "running" });
@@ -215,7 +214,10 @@ describe("CreaoClient cancel on timeout", () => {
       .catch((e) => e);
     expect(err).toMatchObject({ code: "timeout", runId: "run_7" });
     await new Promise((r) => setTimeout(r, 5));
-    expect(calls.some((c) => c.url.endsWith("/runs/run_7/cancel") && c.init.method === "POST")).toBe(true);
+    const polls = calls.length;
+    await new Promise((r) => setTimeout(r, 10));
+    expect(calls.length).toBe(polls);
+    expect(calls.some((c) => c.url.includes("cancel"))).toBe(false);
   });
 });
 

@@ -1,7 +1,6 @@
 import { lookup } from "node:dns/promises";
 import { BlockList, isIP } from "node:net";
 import type { OutfitPlan } from "./format.js";
-import { errorCode, log } from "./log.js";
 
 export interface CreaoOutcome {
   plan: OutfitPlan;
@@ -131,8 +130,7 @@ export class CreaoClient {
       }
     } catch (error) {
       if (!signal.aborted) throw error;
-      // We stopped waiting (timeout/shutdown): don't let the run keep spending credits.
-      void this.cancel(runId);
+      // Creao has no cancel API: we just stop waiting and let the run finish on its side.
       const reason = signal.reason;
       throw new CreaoError(reason instanceof CreaoError ? reason.code : "aborted", runId);
     }
@@ -164,24 +162,6 @@ export class CreaoClient {
       }
     }
     return undefined;
-  }
-
-  /** Best-effort cancel of a run we no longer need. Never throws. */
-  async cancel(runId: string): Promise<boolean> {
-    try {
-      const res = await this.fetch(`${this.base}/${encodeURIComponent(runId)}/cancel`, {
-        method: "POST",
-        signal: AbortSignal.timeout(10_000),
-        headers: { Authorization: `Bearer ${this.opts.apiKey}`, "Content-Type": "application/json" },
-        body: "{}",
-      });
-      if (res.ok) log.info("creao_run_cancelled", { runId });
-      else log.warn("creao_cancel_failed", { runId, status: res.status });
-      return res.ok;
-    } catch (error) {
-      log.warn("creao_cancel_failed", { runId, error: errorCode(error) });
-      return false;
-    }
   }
 
   private async download(url: string, signal: AbortSignal): Promise<unknown> {
