@@ -169,7 +169,7 @@ export class CreaoClient {
     let target = new URL(url);
     if (!isCreaoHost(target, api)) throw new CreaoError("artifact_untrusted_host");
     for (let hop = 0; ; hop++) {
-      if (!(await this.resolvesPublic(target.hostname))) throw new CreaoError("artifact_private_address");
+      if (!(await this.resolvesPublic(target.hostname, signal))) throw new CreaoError("artifact_private_address");
       const res = await this.fetch(target, {
         signal,
         redirect: "manual",
@@ -188,11 +188,19 @@ export class CreaoClient {
     }
   }
 
-  private async resolvesPublic(hostname: string): Promise<boolean> {
+  private async resolvesPublic(hostname: string, signal: AbortSignal): Promise<boolean> {
     const resolve =
       this.opts.resolveHost ?? (async (h: string) => (await lookup(h, { all: true, verbatim: true })).map((a) => a.address));
     try {
-      const addresses = await resolve(hostname);
+      // dns.lookup can't be aborted, so race it against the run deadline and a short cap.
+      const stop = AbortSignal.any([signal, AbortSignal.timeout(5_000)]);
+      const addresses = await Promise.race([
+        resolve(hostname),
+        new Promise<never>((_, reject) => {
+          if (stop.aborted) reject(stop.reason);
+          stop.addEventListener("abort", () => reject(stop.reason), { once: true });
+        }),
+      ]);
       return addresses.length > 0 && addresses.every(isPublicAddress);
     } catch {
       return false;

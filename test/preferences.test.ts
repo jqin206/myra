@@ -11,6 +11,10 @@ describe("temperature preference", () => {
     ["Austin this Saturday — brunch at 11", undefined, false],
     ["celsius or fahrenheit?", undefined, false],
     ["Facebook offsite Friday", undefined, false],
+    ["switch from Fahrenheit to Celsius", "celsius", true],
+    ["use F instead of C", "fahrenheit", true],
+    ["Lisbon Saturday, it'll be like 25°C so brunch outside", undefined, false],
+    ["Paris tomorrow, forecast says 12 degrees celsius", undefined, false],
   ] as const)("%s", (text, unit, only) => {
     expect(detectTempUnit(text)).toBe(unit);
     expect(isPreferenceOnly(text)).toBe(only);

@@ -167,12 +167,12 @@ export function formatReply(plan: OutfitPlan, limit = SPLIT_AT): string[] {
   const outfits = list.map((o) => outfitBlock(o, multiDay)).filter((b): b is string => !!b);
   if (!outfits.length) return [HELP_REPLY];
 
-  const dateText = multiDay
-    ? `${formatPlanDate(days[0])} – ${formatPlanDate(days.at(-1))}`
-    : formatPlanDate(str(plan.date) ?? days[0]);
+  // An outfit's own date wins over the plan-level date when they disagree.
+  const shownDate = multiDay ? undefined : (days[0] ?? str(plan.date));
+  const dateText = multiDay ? `${formatPlanDate(days[0])} – ${formatPlanDate(days.at(-1))}` : formatPlanDate(shownDate);
   const title = [dateText, str(plan.location)].filter(Boolean).join(" · ");
   const header = [title || undefined, weatherLine(plan.weather)].filter(Boolean).join("\n");
-  const footer = footerBlock(plan, !!dateText);
+  const footer = footerBlock({ ...plan, date: shownDate ?? plan.date }, !!dateText);
 
   const segments = [...outfits];
   if (header) segments[0] = `${header}\n\n${segments[0]}`;

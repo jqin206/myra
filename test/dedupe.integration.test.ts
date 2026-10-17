@@ -142,6 +142,19 @@ d("dedupe / idempotency (Postgres)", () => {
     expect(sent.map((s) => s.text)).toEqual([INTERIM_REPLY, ERROR_REPLY]);
   });
 
+  it("starts planning and answers even when the interim send stalls", async () => {
+    const stalled: Sent[] = [];
+    const sender = {
+      send: async (r: Sent) => {
+        if (r.idempotencyKey.endsWith(":interim")) return new Promise<void>(() => {});
+        stalled.push(r);
+      },
+    };
+    await handleIncoming(msg("m1"), deps({ sender, interimWaitMs: 20 }));
+    expect(requests).toHaveLength(1);
+    expect(stalled.map((s) => s.idempotencyKey)).toEqual(["reply:m1"]);
+  });
+
   it("sends the interim message before the outfits", async () => {
     await handleIncoming(msg("m1"), deps());
     expect(sent[0]).toMatchObject({ text: INTERIM_REPLY, idempotencyKey: "reply:m1:interim" });

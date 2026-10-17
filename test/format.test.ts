@@ -125,6 +125,10 @@ describe("formatReply one outfit per day", () => {
     expect(text).toContain("Sat Oct 24 · Museums + dinner");
     expect(text).toContain("Sun Oct 25 · Brunch + park walk");
   });
+  it("uses the outfit's date when it disagrees with the plan date", () => {
+    const [text] = formatReply({ date: "2026-10-24", outfits: [day("2026-10-25", "Brunch")] });
+    expect(text).toMatch(/^Sun Oct 25\n/);
+  });
   it("keeps the single-date header when every outfit is on the same day", () => {
     const [text] = formatReply({ date: "2026-10-24", outfits: [day("2026-10-24", "Brunch")] });
     expect(text).toMatch(/^Sat Oct 24\n/);

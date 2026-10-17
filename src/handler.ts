@@ -30,6 +30,7 @@ export interface HandlerDeps {
   defaultTimezone: string;
   defaultTempUnit: string;
   timeoutMs: number;
+  interimWaitMs?: number;
   leaseSeconds?: number;
   claimRetryMs?: number;
   now?: () => Date;
@@ -87,11 +88,10 @@ export async function handleIncoming(msg: Incoming, deps: HandlerDeps): Promise<
   const history = await recentUserMessages(deps.db, msg.spaceId, msg.messageId, msg.createdAt);
   const request = buildRequestText({ now: deps.now?.() ?? new Date(), timeZone, history, current: msg.text });
 
-  try {
-    await reply(INTERIM_REPLY, `reply:${msg.messageId}:interim`);
-  } catch (error) {
+  // Sent alongside the Creao run so a slow Photon send never delays planning or the deadline.
+  const interim = reply(INTERIM_REPLY, `reply:${msg.messageId}:interim`).catch((error) => {
     log.warn("interim_send_failed", { ...fields, error: errorCode(error) });
-  }
+  });
 
   const started = performance.now();
   const controller = new AbortController();
@@ -113,6 +113,8 @@ export async function handleIncoming(msg: Incoming, deps: HandlerDeps): Promise<
     clearTimeout(deadline);
   }
   const latencyMs = performance.now() - started;
+  // Keep the ack ahead of the answer, but don't let a stalled send hold the reply.
+  await Promise.race([interim, new Promise((r) => setTimeout(r, deps.interimWaitMs ?? 10_000).unref())]);
 
   await recordCreaoRun(deps.db, {
     spaceId: msg.spaceId,
