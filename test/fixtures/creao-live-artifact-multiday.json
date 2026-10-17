@@ -1,0 +1,95 @@
+{
+  "date": "2026-10-24",
+  "location": "New York City, NY",
+  "weather": {
+    "temp_high": 63,
+    "temp_low": 47,
+    "temp_unit": "fahrenheit",
+    "conditions": "Partly cloudy (Sat) / mostly sunny (Sun)",
+    "precipitation_chance": 14,
+    "wind": "NNE 5-10 mph"
+  },
+  "outfit_count": 4,
+  "outfits": [
+    {
+      "activity": "Museum day",
+      "time": "10:00 AM - 4:00 PM",
+      "items": {
+        "top": "Cashmere-blend crewneck sweater, camel",
+        "bottom": "Straight-leg wool-blend trousers, charcoal",
+        "outerwear": "Tailored wool coat, navy",
+        "footwear": "Leather loafers, black (flat)",
+        "accessories": [
+          "Silk scarf",
+          "Leather crossbody bag",
+          "Thin leather gloves"
+        ]
+      },
+      "rationale": "Cool mid-60s with long indoor stretches and lots of standing/walking; a warm knit plus a coat you can shed indoors suits running cold, and flat loafers honor the no-heels preference."
+    },
+    {
+      "activity": "Dinner",
+      "time": "7:00 PM",
+      "items": {
+        "top": "Fine-gauge merino turtleneck, black",
+        "bottom": "Wool midi A-line skirt, deep burgundy",
+        "outerwear": "Long wool wrap coat, camel",
+        "footwear": "Flat ankle boots, black",
+        "accessories": [
+          "Gold hoop earrings",
+          "Structured clutch",
+          "Opaque tights"
+        ]
+      },
+      "rationale": "Evening drops to the upper 40s; a turtleneck, tights and a long wrap coat keep you warm, while flat ankle boots stay heel-free and polished for dinner."
+    },
+    {
+      "activity": "Brunch",
+      "time": "11:00 AM",
+      "items": {
+        "top": "Cotton poplin button-down, white",
+        "bottom": "High-waisted wide-leg jeans, indigo",
+        "outerwear": "Oversized chunky cardigan, oatmeal",
+        "footwear": "Leather sneakers, white",
+        "accessories": [
+          "Canvas tote",
+          "Sunglasses",
+          "Layered gold necklaces"
+        ]
+      },
+      "rationale": "Late morning is mild and sunny; a cardigan layer over a crisp shirt gives warmth without bulk, and flat sneakers transition straight into the park walk."
+    },
+    {
+      "activity": "Central Park walk",
+      "time": "2:00 PM - 4:00 PM",
+      "items": {
+        "top": "Thermal base layer under a chunky knit sweater, cream",
+        "bottom": "Straight-leg corduroy pants, olive",
+        "outerwear": "Lightweight quilted down jacket, black",
+        "footwear": "Waterproof walking boots, flat",
+        "accessories": [
+          "Knit beanie",
+          "Fringed scarf",
+          "Crossbody bag",
+          "Sunglasses"
+        ]
+      },
+      "rationale": "Low 60s with a light NNE breeze and a 23% chance of a passing shower; a thermal layer, puffer and flat waterproof boots keep you warm and dry on uneven park paths."
+    }
+  ],
+  "extras": [
+    "Compact umbrella",
+    "Sunscreen",
+    "Refillable water bottle",
+    "Blister plasters for walking",
+    "Lip balm"
+  ],
+  "assumptions": [
+    "Interpreted 'next weekend' from Sat 2026-10-17 as Sat 2026-10-24 and Sun 2026-10-25",
+    "Resolved 'NYC' to New York City, NY",
+    "Carried forward the stated preferences: runs cold, hates heels",
+    "Assumed museum day runs 10am-4pm and dinner at 7pm on Saturday",
+    "Assumed brunch at 11am and the Central Park walk in the mid-afternoon on Sunday"
+  ],
+  "summary": "Four warm-layered, heel-free NYC looks for a cool, mostly sunny fall weekend of museums, dinner, brunch and a Central Park walk."
+}

@@ -1,0 +1,70 @@
+{
+  "run_id": "run_123",
+  "conversation_id": "conv_456",
+  "status": "completed",
+  "result": {
+    "date": "2025-06-14",
+    "location": "Austin, TX",
+    "weather": {
+      "temp_high": 94,
+      "temp_low": 76,
+      "temp_unit": "fahrenheit",
+      "conditions": "Partly cloudy",
+      "precipitation_chance": 20,
+      "wind": "9 mph"
+    },
+    "outfit_count": 3,
+    "outfits": [
+      {
+        "activity": "Brunch",
+        "time": "11:00 AM",
+        "items": {
+          "top": "Linen camp-collar shirt",
+          "bottom": "Light chino shorts",
+          "outerwear": "None needed",
+          "footwear": "Canvas sneakers",
+          "accessories": [
+            "Sunglasses",
+            "Straw hat"
+          ]
+        },
+        "rationale": "Breathable linen keeps you cool on a patio at 90\u00b0."
+      },
+      {
+        "activity": "Hike",
+        "time": "Afternoon",
+        "items": {
+          "top": "Moisture-wicking tee",
+          "bottom": "Hiking shorts",
+          "footwear": "Trail runners",
+          "accessories": [
+            "Cap"
+          ]
+        },
+        "rationale": "Quick-dry layers for the hottest part of the day."
+      },
+      {
+        "activity": "Dinner downtown",
+        "time": "Evening",
+        "items": {
+          "top": "Short-sleeve knit polo",
+          "bottom": "Tapered trousers",
+          "footwear": "Leather loafers",
+          "accessories": [
+            "Watch"
+          ]
+        },
+        "rationale": "Still warm after sunset, so stay light but polished."
+      }
+    ],
+    "extras": [
+      "Sunscreen",
+      "Refillable water bottle"
+    ],
+    "assumptions": [
+      "Interpreted 'this Saturday' as 2025-06-14",
+      "Assumed brunch is at 11am"
+    ],
+    "summary": "Three earthy, heat-friendly looks for a warm Austin day."
+  }
+}

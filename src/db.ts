@@ -1,0 +1,207 @@
+import pg from "pg";
+
+export type Queryable = Pick<pg.Pool, "query">;
+
+const MIGRATIONS: { id: string; sql: string }[] = [
+  {
+    id: "001_init",
+    sql: `
+      CREATE TABLE IF NOT EXISTS users (
+        space_id    TEXT PRIMARY KEY,
+        handle      TEXT,
+        timezone    TEXT,
+        temp_unit   TEXT,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS messages (
+        message_id  TEXT PRIMARY KEY,
+        space_id    TEXT NOT NULL,
+        text        TEXT NOT NULL,
+        created_at  TIMESTAMPTZ NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS messages_space_created_idx ON messages (space_id, created_at DESC);
+      CREATE TABLE IF NOT EXISTS processed_messages (
+        message_id  TEXT PRIMARY KEY,
+        space_id    TEXT,
+        status      TEXT NOT NULL,
+        claimed_by  TEXT,
+        claimed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS event_cursor (
+        consumer    TEXT PRIMARY KEY,
+        cursor      BIGINT NOT NULL,
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS creao_runs (
+        id               BIGSERIAL PRIMARY KEY,
+        space_id         TEXT NOT NULL,
+        message_id       TEXT NOT NULL,
+        run_id           TEXT,
+        conversation_id  TEXT,
+        status           TEXT NOT NULL,
+        latency_ms       INTEGER,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS creao_runs_message_idx ON creao_runs (message_id);
+    `,
+  },
+];
+
+export function createPool(databaseUrl: string): pg.Pool {
+  const local = /@(localhost|127\.0\.0\.1|[^/]*\.railway\.internal)[:/]/.test(databaseUrl);
+  return new pg.Pool({
+    connectionString: databaseUrl,
+    max: 10,
+    ssl: local || /sslmode=disable/.test(databaseUrl) ? undefined : { rejectUnauthorized: false },
+  });
+}
+
+export async function migrate(pool: pg.Pool): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query("SELECT pg_advisory_lock(727274)");
+    await client.query(
+      "CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+    );
+    for (const m of MIGRATIONS) {
+      const done = await client.query("SELECT 1 FROM schema_migrations WHERE id = $1", [m.id]);
+      if (done.rowCount) continue;
+      await client.query("BEGIN");
+      try {
+        await client.query(m.sql);
+        await client.query("INSERT INTO schema_migrations (id) VALUES ($1)", [m.id]);
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      }
+    }
+  } finally {
+    await client.query("SELECT pg_advisory_unlock(727274)").catch(() => undefined);
+    client.release();
+  }
+}
+
+export const TERMINAL_STATUSES = ["replied", "ignored"] as const;
+
+export type ClaimResult = "claimed" | "done" | "busy";
+
+/**
+ * Claims a message for processing. A row that is still `processing` under
+ * another owner is only taken over once its lease has expired, which covers a
+ * crashed process and overlapping deploys.
+ */
+export async function claimMessage(
+  db: Queryable,
+  messageId: string,
+  spaceId: string,
+  owner: string,
+  leaseSeconds: number,
+): Promise<ClaimResult> {
+  const res = await db.query<{ message_id: string }>(
+    `INSERT INTO processed_messages (message_id, space_id, status, claimed_by, claimed_at)
+     VALUES ($1, $2, 'processing', $3, now())
+     ON CONFLICT (message_id) DO UPDATE
+       SET claimed_by = EXCLUDED.claimed_by, claimed_at = now(), updated_at = now()
+       WHERE processed_messages.status = 'processing'
+         AND (processed_messages.claimed_by = EXCLUDED.claimed_by
+              OR processed_messages.claimed_at < now() - make_interval(secs => $4))
+     RETURNING message_id`,
+    [messageId, spaceId, owner, leaseSeconds],
+  );
+  if (res.rowCount) return "claimed";
+  const row = await db.query<{ status: string }>("SELECT status FROM processed_messages WHERE message_id = $1", [
+    messageId,
+  ]);
+  return row.rows[0]?.status === "processing" ? "busy" : "done";
+}
+
+export async function finishMessage(
+  db: Queryable,
+  messageId: string,
+  status: (typeof TERMINAL_STATUSES)[number],
+  record?: { spaceId: string; text: string; createdAt: string },
+): Promise<void> {
+  if (record) {
+    await db.query(
+      `INSERT INTO messages (message_id, space_id, text, created_at) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (message_id) DO NOTHING`,
+      [messageId, record.spaceId, record.text, record.createdAt],
+    );
+  }
+  await db.query("UPDATE processed_messages SET status = $2, updated_at = now() WHERE message_id = $1", [
+    messageId,
+    status,
+  ]);
+}
+
+export async function recentUserMessages(
+  db: Queryable,
+  spaceId: string,
+  excludeMessageId: string,
+  before: string,
+  limit = 10,
+): Promise<string[]> {
+  const res = await db.query<{ text: string }>(
+    `SELECT text FROM messages
+     WHERE space_id = $1 AND message_id <> $2
+       AND created_at <= $3 AND created_at > $3::timestamptz - interval '30 days'
+     ORDER BY created_at DESC LIMIT $4`,
+    [spaceId, excludeMessageId, before, limit],
+  );
+  return res.rows.map((r) => r.text).reverse();
+}
+
+export async function upsertUser(
+  db: Queryable,
+  spaceId: string,
+  handle: string | undefined,
+): Promise<{ timezone: string | null; tempUnit: string | null }> {
+  const res = await db.query<{ timezone: string | null; temp_unit: string | null }>(
+    `INSERT INTO users (space_id, handle) VALUES ($1, $2)
+     ON CONFLICT (space_id) DO UPDATE SET handle = COALESCE(EXCLUDED.handle, users.handle), updated_at = now()
+     RETURNING timezone, temp_unit`,
+    [spaceId, handle ?? null],
+  );
+  return { timezone: res.rows[0]?.timezone ?? null, tempUnit: res.rows[0]?.temp_unit ?? null };
+}
+
+export async function recordCreaoRun(
+  db: Queryable,
+  run: {
+    spaceId: string;
+    messageId: string;
+    runId?: string;
+    conversationId?: string;
+    status: string;
+    latencyMs: number;
+  },
+): Promise<void> {
+  await db.query(
+    `INSERT INTO creao_runs (space_id, message_id, run_id, conversation_id, status, latency_ms)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [run.spaceId, run.messageId, run.runId ?? null, run.conversationId ?? null, run.status, Math.round(run.latencyMs)],
+  );
+}
+
+export async function loadCursor(db: Queryable, consumer: string): Promise<number> {
+  const res = await db.query<{ cursor: string }>("SELECT cursor FROM event_cursor WHERE consumer = $1", [consumer]);
+  return res.rows[0] ? Number(res.rows[0].cursor) : 0;
+}
+
+export async function saveCursor(db: Queryable, consumer: string, cursor: number): Promise<void> {
+  await db.query(
+    `INSERT INTO event_cursor (consumer, cursor) VALUES ($1, $2)
+     ON CONFLICT (consumer) DO UPDATE
+       SET cursor = GREATEST(event_cursor.cursor, EXCLUDED.cursor), updated_at = now()`,
+    [consumer, cursor],
+  );
+}
+
+export async function pruneOldMessages(db: Queryable): Promise<number> {
+  const res = await db.query("DELETE FROM messages WHERE created_at < now() - interval '30 days'");
+  return res.rowCount ?? 0;
+}
