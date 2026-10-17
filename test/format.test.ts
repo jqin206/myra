@@ -82,6 +82,9 @@ describe("isDateAssumption", () => {
   it("detects assumptions that only restate the shown date", () => {
     expect(isDateAssumption("Interpreted 'this Saturday' as 2025-06-14", "2025-06-14")).toBe(true);
     expect(isDateAssumption("Resolved 'this Saturday' to 2026-10-17, the stated current date", "2026-10-17")).toBe(true);
+    expect(
+      isDateAssumption("Resolved 'tomorrow' to Sunday, 2026-10-18 from the stated current date of Saturday, 2026-10-17", "2026-10-18"),
+    ).toBe(true);
     expect(isDateAssumption("Assumed brunch is at 11am", "2025-06-14")).toBe(false);
     expect(isDateAssumption("Interpreted 'next weekend' as 2026-10-24 and 2026-10-25", "2026-10-24")).toBe(false);
   });

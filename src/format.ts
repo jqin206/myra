@@ -119,7 +119,9 @@ const RESOLVED_DATE =
 
 /** True when an assumption only restates the date already shown in the header. */
 export function isDateAssumption(text: string, planDate: string | undefined): boolean {
-  const isoDates: string[] = text.match(/\d{4}-\d{2}-\d{2}/g) ?? [];
+  // "…from the stated current date of Saturday, 2026-10-17" names the reference date, not the plan date.
+  const stripped = text.replace(/\bfrom (the (stated )?current date( of)? )?(\w+,? )?\d{4}-\d{2}-\d{2}/gi, "");
+  const isoDates: string[] = stripped.match(/\d{4}-\d{2}-\d{2}/g) ?? [];
   if (isoDates.some((d) => d !== planDate)) return false;
   return (planDate !== undefined && isoDates.includes(planDate)) || RESOLVED_DATE.test(text);
 }
