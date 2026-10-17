@@ -1,0 +1,7 @@
+{
+  "outfits": [
+    { "activity": "Brunch", "items": { "top": "White tee", "footwear": "Sneakers" } },
+    { "time": "7:00 PM", "rationale": "Keep it simple." },
+    { "items": {} }
+  ]
+}

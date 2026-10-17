@@ -1,0 +1,41 @@
+{
+  "name": "myra",
+  "version": "1.0.0",
+  "description": "Photon ⇄ Creao relay server for an iMessage outfit-planning agent",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "vitest run"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jqin206/myra.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/jqin206/myra/issues"
+  },
+  "homepage": "https://github.com/jqin206/myra#readme",
+  "dependencies": {
+    "@photon-ai/api": "^0.5.0",
+    "pg": "^8.23.1",
+    "socket.io-client": "^4.8.4"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.5"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=24"
+  }
+}
