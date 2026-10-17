@@ -31,7 +31,7 @@ Messages from different conversations are handled in parallel. Messages from the
 | `PHOTON_AGENT_HANDLE` | no | **Local testing only.** If set, only messages received by this handle (e.g. `+15551234567`) are answered. Leave unset in deployed environments. |
 | `CREAO_API_KEY` | yes | Either an app-scoped API Trigger key (`capi_…`) or a CREAO CLI account key (`cr_sk_…`). The prefix selects the endpoint (see below). |
 | `CREAO_AGENT_ID` | yes | Creao agent/app ID. |
-| `DATABASE_URL` | yes | Postgres connection string. |
+| `DATABASE_URL` | yes | Postgres connection string. TLS is verified for remote hosts. localhost and `*.railway.internal` connect without TLS. Append `?sslmode=no-verify` only if you must accept an unverified certificate. |
 | `DEFAULT_TIMEZONE` | no | IANA timezone for users without one. Default `America/Los_Angeles`. |
 | `DEFAULT_TEMP_UNIT` | no | `fahrenheit` or `celsius`. Default `fahrenheit`. |
 | `PORT` | no | Port for `GET /health`. Default `8080` (Railway sets it). |

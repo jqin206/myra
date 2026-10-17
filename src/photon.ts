@@ -27,6 +27,7 @@ export interface StreamOptions {
   keyOf: (event: unknown) => string | undefined;
   handle: (event: unknown) => Promise<void>;
   maxInFlight?: number;
+  checkpointRetryMs?: number;
 }
 
 /**
@@ -39,7 +40,8 @@ export class EventStream {
   private socket?: Socket;
   private cursor = 0;
   private epoch = 0;
-  private readonly pending = new Map<number, boolean>();
+  private readonly pending = new Map<number, "running" | "done" | "failed">();
+  private retryTimer?: NodeJS.Timeout;
   private readonly chains = new Map<string, Promise<void>>();
   private checkpointing: Promise<void> = Promise.resolve();
   private stopped = false;
@@ -90,28 +92,35 @@ export class EventStream {
   }
 
   private onDelivery(event: unknown, seq: number): void {
-    if (typeof seq !== "number" || seq <= this.cursor || this.pending.has(seq)) return;
-    if (this.pending.size >= (this.opts.maxInFlight ?? 256)) {
+    if (typeof seq !== "number" || seq <= this.cursor) return;
+    const state = this.pending.get(seq);
+    if (state === "running") return;
+    if (state === "done") {
+      // Replay of a handled event whose cursor write may have failed: retry the checkpoint.
+      this.checkpoint();
+      return;
+    }
+    if (state === undefined && this.pending.size >= (this.opts.maxInFlight ?? 256)) {
       log.warn("photon_backpressure", { inFlight: this.pending.size });
       this.reconnect();
       return;
     }
-    const generation = this.epoch;
-    this.pending.set(seq, false);
+    this.pending.set(seq, "running");
     const key = this.opts.keyOf(event) ?? `seq:${seq}`;
     const prev = this.chains.get(key) ?? Promise.resolve();
     const next = prev
       .then(() => this.opts.handle(event))
       .then(
         () => {
-          this.pending.set(seq, true);
+          this.pending.set(seq, "done");
           this.checkpoint();
         },
         (error) => {
-          this.pending.delete(seq);
+          // Keep the seq as a barrier so the cursor can never move past it until a replay succeeds.
+          this.pending.set(seq, "failed");
           log.error("event_failed", { seq, error: errorCode(error) });
-          // Replay from the last fully handled cursor; handlers are idempotent.
-          if (generation === this.epoch) this.reconnect();
+          // Always reconnect: a replay on the current connection may have been ignored while this was running.
+          this.reconnect();
         },
       );
     this.chains.set(key, next);
@@ -120,13 +129,19 @@ export class EventStream {
     });
   }
 
+  /** Highest seq such that it and every earlier delivered seq completed successfully. */
+  private contiguousDone(): number {
+    let advanced = this.cursor;
+    for (const seq of [...this.pending.keys()].sort((a, b) => a - b)) {
+      if (this.pending.get(seq) !== "done") break;
+      advanced = seq;
+    }
+    return advanced;
+  }
+
   private checkpoint(): void {
     this.checkpointing = this.checkpointing.then(async () => {
-      let advanced = this.cursor;
-      for (const seq of [...this.pending.keys()].sort((a, b) => a - b)) {
-        if (!this.pending.get(seq)) break;
-        advanced = seq;
-      }
+      const advanced = this.contiguousDone();
       if (advanced <= this.cursor) return;
       try {
         await this.opts.saveCursor(advanced);
@@ -134,9 +149,28 @@ export class EventStream {
         this.cursor = advanced;
       } catch (error) {
         log.error("cursor_save_failed", { error: errorCode(error) });
-        this.reconnect();
+        if (!this.stopped && !this.retryTimer) {
+          this.retryTimer = setTimeout(() => {
+            this.retryTimer = undefined;
+            this.checkpoint();
+          }, this.opts.checkpointRetryMs ?? 5000);
+        }
       }
     });
+  }
+
+  /** Exposed for tests. */
+  get savedCursor(): number {
+    return this.cursor;
+  }
+
+  /** Exposed for tests: feeds a delivery as if it came from the socket. */
+  deliver(event: unknown, seq: number): void {
+    this.onDelivery(event, seq);
+  }
+
+  idle(): Promise<void> {
+    return Promise.allSettled([...this.chains.values()]).then(() => this.checkpointing);
   }
 
   private reconnect(): void {
@@ -147,6 +181,7 @@ export class EventStream {
 
   async stop(): Promise<void> {
     this.stopped = true;
+    clearTimeout(this.retryTimer);
     this.socket?.disconnect();
     await Promise.allSettled([...this.chains.values()]);
     await this.checkpointing;

@@ -76,6 +76,34 @@ describe("CreaoClient (capi_ app-scoped key)", () => {
   });
 });
 
+describe("CreaoClient artifact URL safety", () => {
+  const completedWith = (url: string) => () =>
+    json({ id: "r1", status: "completed", result: { artifacts: [{ id: "a.json", type: "application/json", url }] } });
+
+  it.each(["http://agent.creao.ai/dl", "https://169.254.169.254/latest", "https://evil.example.com/a.json", "https://creao.ai.evil.com/a"])(
+    "refuses to fetch artifact %s",
+    async (url) => {
+      const { fetch, calls } = mockFetch(completedWith(url));
+      const outcome = await new CreaoClient({ apiKey: "capi_x", agentId: "a", fetch }).run(input, signal());
+      expect(calls.map((c) => c.url)).not.toContain(url);
+      expect(outcome.plan.outfits).toBeUndefined();
+    },
+  );
+
+  it.each(["http://storage.example.com/a", "https://10.0.0.5/a", "https://localhost/a", "https://metadata.google.internal/a", "https://[::1]/a"])(
+    "refuses to follow a redirect to %s",
+    async (location) => {
+      const { fetch, calls } = mockFetch((url, init) => {
+        if (init.method === "POST") return completedWith("https://agent.creao.ai/dl")();
+        if (url === "https://agent.creao.ai/dl") return new Response(null, { status: 302, headers: { location } });
+        return json(example);
+      });
+      await new CreaoClient({ apiKey: "capi_x", agentId: "a", fetch }).run(input, signal());
+      expect(calls).toHaveLength(2);
+    },
+  );
+});
+
 describe("CreaoClient (cr_sk_ CLI key)", () => {
   it("uses the developer endpoint with agent_id/input and accepts a wrapped result", async () => {
     const { fetch, calls } = mockFetch(() => json(wrapped));

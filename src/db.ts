@@ -50,13 +50,27 @@ const MIGRATIONS: { id: string; sql: string }[] = [
   },
 ];
 
+/**
+ * TLS is verified for remote databases. Railway's private network
+ * (`*.railway.internal`) and localhost don't use TLS. Append
+ * `sslmode=no-verify` to DATABASE_URL to explicitly opt out of verification.
+ */
+export function poolSsl(databaseUrl: string): pg.PoolConfig["ssl"] {
+  const url = new URL(databaseUrl);
+  const mode = url.searchParams.get("sslmode");
+  const host = url.hostname;
+  if (mode === "disable") return false;
+  if (mode === "no-verify") return { rejectUnauthorized: false };
+  if (host === "localhost" || host === "127.0.0.1" || host.endsWith(".railway.internal")) return false;
+  return { rejectUnauthorized: true };
+}
+
 export function createPool(databaseUrl: string): pg.Pool {
-  const local = /@(localhost|127\.0\.0\.1|[^/]*\.railway\.internal)[:/]/.test(databaseUrl);
-  return new pg.Pool({
-    connectionString: databaseUrl,
-    max: 10,
-    ssl: local || /sslmode=disable/.test(databaseUrl) ? undefined : { rejectUnauthorized: false },
-  });
+  const url = new URL(databaseUrl);
+  const ssl = poolSsl(databaseUrl);
+  // Our `ssl` option decides TLS; drop sslmode so pg doesn't override it.
+  url.searchParams.delete("sslmode");
+  return new pg.Pool({ connectionString: url.toString(), max: 10, ssl });
 }
 
 export async function migrate(pool: pg.Pool): Promise<void> {

@@ -154,19 +154,27 @@ export class CreaoClient {
   }
 
   private async download(url: string, signal: AbortSignal): Promise<unknown> {
-    const sameOrigin = new URL(url).origin === new URL(this.base).origin;
-    let res = await this.fetch(url, {
-      signal,
-      redirect: "manual",
-      headers: sameOrigin ? { Authorization: `Bearer ${this.opts.apiKey}` } : {},
-    });
-    const location = res.headers.get("location");
-    if (res.status >= 300 && res.status < 400 && location) {
-      // Never forward the API key to the storage origin.
-      res = await this.fetch(new URL(location, url), { signal });
+    let target = new URL(url);
+    if (!isCreaoHost(target, new URL(this.base))) throw new CreaoError("artifact_untrusted_host");
+    let withKey = true;
+    for (let hop = 0; ; hop++) {
+      const res = await this.fetch(target, {
+        signal,
+        redirect: "manual",
+        // Never forward the API key beyond Creao's own origin.
+        headers: withKey ? { Authorization: `Bearer ${this.opts.apiKey}` } : {},
+      });
+      const location = res.headers.get("location");
+      if (res.status >= 300 && res.status < 400 && location) {
+        if (hop >= 3) throw new CreaoError("artifact_too_many_redirects");
+        target = new URL(location, target);
+        if (!isSafePublicUrl(target)) throw new CreaoError("artifact_untrusted_redirect");
+        withKey = false;
+        continue;
+      }
+      if (!res.ok) throw new CreaoError(`artifact_http_${res.status}`);
+      return JSON.parse(await res.text());
     }
-    if (!res.ok) throw new CreaoError(`artifact_http_${res.status}`);
-    return JSON.parse(await res.text());
   }
 
   private async request(method: string, url: string, signal: AbortSignal, body?: unknown): Promise<Json> {
@@ -201,6 +209,20 @@ export class CreaoClient {
       throw new CreaoError(`http_${res.status}${code ? `:${code}` : ""}`);
     }
   }
+}
+
+/** Artifact links must point at Creao itself (the API origin or a *.creao.ai host) over HTTPS. */
+function isCreaoHost(url: URL, api: URL): boolean {
+  return url.protocol === "https:" && (url.host === api.host || url.hostname === "creao.ai" || url.hostname.endsWith(".creao.ai"));
+}
+
+/** Redirect targets (signed storage URLs) must be HTTPS hostnames, not IP literals or internal names. */
+export function isSafePublicUrl(url: URL): boolean {
+  if (url.protocol !== "https:" || url.username || url.password) return false;
+  const host = url.hostname.toLowerCase();
+  if (host.startsWith("[") || /^\d+(\.\d+){3}$/.test(host) || /^\d+$/.test(host)) return false;
+  if (!host.includes(".")) return false;
+  return !/(^|\.)(localhost|internal|local|localdomain|intranet|corp|home|lan)$/.test(host);
 }
 
 function isTransient(code: string): boolean {
