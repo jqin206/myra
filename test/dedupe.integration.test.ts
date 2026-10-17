@@ -10,7 +10,7 @@ import example from "./fixtures/creao-example.json" with { type: "json" };
 const url = process.env.TEST_DATABASE_URL;
 const d = url ? describe : describe.skip;
 
-type Sent = { text: string; idempotencyKey: string; spaceId: string; senderId: string; parentMessageId: string };
+type Sent = { text: string; idempotencyKey: string; spaceId: string; senderId: string };
 
 d("dedupe / idempotency (Postgres)", () => {
   let pool: pg.Pool;
@@ -63,7 +63,8 @@ d("dedupe / idempotency (Postgres)", () => {
     await handleIncoming(msg("m1"), deps());
     await handleIncoming(msg("m1"), deps());
     expect(sent.map((s) => s.idempotencyKey)).toEqual(["reply:m1:interim", "reply:m1"]);
-    expect(sent[1]).toMatchObject({ idempotencyKey: "reply:m1", spaceId: "spc_1", senderId: "usr_agent", parentMessageId: "m1" });
+    expect(sent[1]).toMatchObject({ idempotencyKey: "reply:m1", spaceId: "spc_1", senderId: "usr_agent" });
+    expect(sent[1]).not.toHaveProperty("parentMessageId");
     expect(requests).toHaveLength(1);
     const runs = await pool.query("SELECT run_id, status FROM creao_runs");
     expect(runs.rows).toEqual([{ run_id: "run_1", status: "completed" }]);
