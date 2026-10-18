@@ -4,11 +4,7 @@ Thin relay between [Photon](https://photon.codes/docs/beta) (iMessage delivery) 
 
 Users text their plans to a Photon iMessage number ("Austin this Saturday — brunch at 11, hike in the afternoon, dinner downtown"). This server forwards the text — with today's date and the user's recent messages — to the Creao agent, which looks up the weather and picks outfits. The server formats the result as plain text and replies in the same iMessage thread. There is no LLM in this server.
 
-```
-iPhone ──iMessage──▶ Photon ──Socket.IO "delivery"──▶ myra ──POST run / poll──▶ Creao
-                       ▲                                │
-                       └──── projects.sendMessage ◀─────┘        Postgres: history, dedupe, cursor
-```
+![Architecture: iPhone → Photon → myra relay on Railway → Creao, with Postgres for history, dedupe and cursor](docs/architecture.png)
 
 ## How it works
 
