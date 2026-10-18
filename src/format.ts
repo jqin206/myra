@@ -1,4 +1,5 @@
 export interface OutfitItems {
+  dress?: string | null;
   top?: string | null;
   bottom?: string | null;
   outerwear?: string | null;
@@ -108,6 +109,7 @@ function stripDay(activity: string): string {
 }
 
 const ITEM_LABELS: [keyof OutfitItems, string][] = [
+  ["dress", "👗 Dress"],
   ["top", "👕 Top"],
   ["bottom", "👖 Bottom"],
   ["outerwear", "🧥 Layer"],

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildRequestText, formatToday, PER_DAY_INSTRUCTION } from "../src/requestText.js";
+import {
+  buildRequestText,
+  DRESS_INSTRUCTION,
+  formatToday,
+  PER_DAY_INSTRUCTION,
+  REVISE_INSTRUCTION,
+} from "../src/requestText.js";
 
 const now = new Date("2026-10-17T22:48:00Z");
 
@@ -25,7 +31,7 @@ describe("buildRequestText", () => {
   it("omits the history section when there is none", () => {
     const text = buildRequestText({ now, timeZone: "America/Los_Angeles", history: [], current: "Austin this Saturday" });
     expect(text).toBe(
-      `Today is Saturday, October 17, 2026 (America/Los_Angeles).\n\nCurrent message:\n"Austin this Saturday"\n\n${PER_DAY_INSTRUCTION}`,
+      `Today is Saturday, October 17, 2026 (America/Los_Angeles).\n\nCurrent message:\n"Austin this Saturday"\n\n${PER_DAY_INSTRUCTION}\n\n${DRESS_INSTRUCTION}`,
     );
   });
 
@@ -48,6 +54,8 @@ describe("buildRequestText", () => {
         '"actually dinner is on a rooftop"',
         "",
         PER_DAY_INSTRUCTION,
+        "",
+        DRESS_INSTRUCTION,
       ].join("\n"),
     );
   });
@@ -65,5 +73,35 @@ describe("buildRequestText", () => {
     const text = buildRequestText({ now, timeZone: "UTC", history: ["a\nb"], current: "line 1\n\nline 2" });
     expect(text).toContain('- "a b"');
     expect(text).toContain('"line 1 line 2"');
+  });
+
+  it("sends the previous plan, without rationale or assumptions, and asks for a revision", () => {
+    const previousPlan = {
+      date: "2026-10-24",
+      location: "New York, NY",
+      weather: { temp_high: 56, temp_low: 47 },
+      daily_weather: [{ date: "2026-10-24", temp_high: 56, temp_low: 47 }],
+      outfits: [
+        { date: "2026-10-24", activity: "Museums", time: "11:00 AM", items: { top: "Sweater", bottom: "Jeans" }, rationale: "secret why" },
+      ],
+      assumptions: ["secret note"],
+    };
+    const text = buildRequestText({ now, timeZone: "UTC", history: [], current: "no jeans please", previousPlan });
+    const json = JSON.parse(text.split("Outfits you last sent this user (JSON):\n")[1]!.split("\n")[0]!);
+    expect(json).toEqual({
+      date: "2026-10-24",
+      location: "New York, NY",
+      daily_weather: [{ date: "2026-10-24", temp_high: 56, temp_low: 47 }],
+      outfits: [{ date: "2026-10-24", activity: "Museums", time: "11:00 AM", items: { top: "Sweater", bottom: "Jeans" } }],
+    });
+    expect(text).not.toContain("secret");
+    expect(text.indexOf("Outfits you last sent")).toBeLessThan(text.indexOf("Current message:"));
+    expect(text).toContain(`"no jeans please"\n\n${REVISE_INSTRUCTION}`);
+  });
+
+  it("skips the revision section when there is no previous plan with outfits", () => {
+    const text = buildRequestText({ now, timeZone: "UTC", history: [], current: "hi", previousPlan: { outfits: [] } });
+    expect(text).not.toContain("Outfits you last sent");
+    expect(text).not.toContain(REVISE_INSTRUCTION);
   });
 });
