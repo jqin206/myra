@@ -1,4 +1,5 @@
 import pg from "pg";
+import type { PlannedDay } from "./requestText.js";
 
 export type Queryable = Pick<pg.Pool, "query">;
 
@@ -53,6 +54,20 @@ const MIGRATIONS: { id: string; sql: string }[] = [
     sql: `
       ALTER TABLE creao_runs ADD COLUMN IF NOT EXISTS plan JSONB;
       CREATE INDEX IF NOT EXISTS creao_runs_space_created_idx ON creao_runs (space_id, created_at DESC);
+    `,
+  },
+  {
+    id: "003_planned_days",
+    sql: `
+      CREATE TABLE IF NOT EXISTS planned_days (
+        space_id    TEXT NOT NULL,
+        date        DATE NOT NULL,
+        location    TEXT,
+        weather     JSONB,
+        outfit      JSONB NOT NULL,
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (space_id, date)
+      );
     `,
   },
 ];
@@ -221,7 +236,7 @@ export async function recordCreaoRun(
   );
 }
 
-/** The most recent outfit plan sent to this user in the last 7 days, so a follow-up can revise it. */
+/** The most recent new-trip plan sent to this user in the last 7 days; its dates are the "most recent trip". */
 export async function lastPlan<T = unknown>(db: Queryable, spaceId: string): Promise<T | undefined> {
   const res = await db.query<{ plan: T }>(
     `SELECT plan FROM creao_runs
@@ -230,6 +245,28 @@ export async function lastPlan<T = unknown>(db: Queryable, spaceId: string): Pro
     [spaceId],
   );
   return res.rows[0]?.plan;
+}
+
+/** The user's saved outfits from `fromDate` (YYYY-MM-DD) on, oldest first. */
+export async function upcomingDays(db: Queryable, spaceId: string, fromDate: string, limit = 21): Promise<PlannedDay[]> {
+  const res = await db.query<{ date: string; location: string | null; weather: PlannedDay["weather"]; outfit: PlannedDay["outfit"] }>(
+    `SELECT to_char(date, 'YYYY-MM-DD') AS date, location, weather, outfit FROM planned_days
+     WHERE space_id = $1 AND date >= $2::date ORDER BY date LIMIT $3`,
+    [spaceId, fromDate, limit],
+  );
+  return res.rows;
+}
+
+/** Saves (or replaces) each planned day, keyed by date. */
+export async function savePlannedDays(db: Queryable, spaceId: string, days: PlannedDay[]): Promise<void> {
+  for (const d of days) {
+    await db.query(
+      `INSERT INTO planned_days (space_id, date, location, weather, outfit) VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (space_id, date) DO UPDATE
+         SET location = EXCLUDED.location, weather = EXCLUDED.weather, outfit = EXCLUDED.outfit, updated_at = now()`,
+      [spaceId, d.date, d.location ?? null, d.weather ? JSON.stringify(d.weather) : null, JSON.stringify(d.outfit)],
+    );
+  }
 }
 
 export async function loadCursor(db: Queryable, consumer: string): Promise<number> {
@@ -249,5 +286,6 @@ export async function saveCursor(db: Queryable, consumer: string, cursor: number
 export async function pruneOldMessages(db: Queryable): Promise<number> {
   const res = await db.query("DELETE FROM messages WHERE created_at < now() - interval '30 days'");
   await db.query("UPDATE creao_runs SET plan = NULL WHERE plan IS NOT NULL AND created_at < now() - interval '30 days'");
+  await db.query("DELETE FROM planned_days WHERE date < (now() - interval '30 days')::date");
   return res.rowCount ?? 0;
 }
