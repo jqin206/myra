@@ -11,6 +11,8 @@ export interface RequestTextInput {
 export const HISTORY_LIMIT = 10;
 export const PER_DAY_INSTRUCTION =
   'Reply format: give exactly one outfit per day (not one per activity) that works across all of that day\'s activities, and set each outfit\'s "date" field to that day\'s date (YYYY-MM-DD).';
+export const ONE_TRIP_INSTRUCTION =
+  "Plan exactly one trip. If the current message describes a trip or itinerary, plan only that trip. If it only adds or changes preferences, apply them to the most recent trip only (the outfits above if they're listed, otherwise the latest itinerary among the earlier messages). Earlier messages are context for preferences; never combine several trips in one plan.";
 export const DRESS_INSTRUCTION =
   'If an outfit is built around a dress or jumpsuit, put it in that outfit\'s "items.dress" field and leave "top" and "bottom" empty.';
 export const REVISE_INSTRUCTION =
@@ -51,6 +53,7 @@ export function buildRequestText({ now, timeZone, history, current, previousPlan
     sections.push(`Outfits you last sent this user (JSON):\n${JSON.stringify(compactPlan(previousPlan))}`);
   }
   sections.push(`Current message:\n${quote(current)}`);
+  sections.push(ONE_TRIP_INSTRUCTION);
   if (previousPlan?.outfits?.length) sections.push(REVISE_INSTRUCTION);
   sections.push(PER_DAY_INSTRUCTION, DRESS_INSTRUCTION);
   return sections.join("\n\n");

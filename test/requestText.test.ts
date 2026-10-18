@@ -3,6 +3,7 @@ import {
   buildRequestText,
   DRESS_INSTRUCTION,
   formatToday,
+  ONE_TRIP_INSTRUCTION,
   PER_DAY_INSTRUCTION,
   REVISE_INSTRUCTION,
 } from "../src/requestText.js";
@@ -31,7 +32,7 @@ describe("buildRequestText", () => {
   it("omits the history section when there is none", () => {
     const text = buildRequestText({ now, timeZone: "America/Los_Angeles", history: [], current: "Austin this Saturday" });
     expect(text).toBe(
-      `Today is Saturday, October 17, 2026 (America/Los_Angeles).\n\nCurrent message:\n"Austin this Saturday"\n\n${PER_DAY_INSTRUCTION}\n\n${DRESS_INSTRUCTION}`,
+      `Today is Saturday, October 17, 2026 (America/Los_Angeles).\n\nCurrent message:\n"Austin this Saturday"\n\n${ONE_TRIP_INSTRUCTION}\n\n${PER_DAY_INSTRUCTION}\n\n${DRESS_INSTRUCTION}`,
     );
   });
 
@@ -52,6 +53,8 @@ describe("buildRequestText", () => {
         "",
         "Current message:",
         '"actually dinner is on a rooftop"',
+        "",
+        ONE_TRIP_INSTRUCTION,
         "",
         PER_DAY_INSTRUCTION,
         "",
@@ -96,7 +99,7 @@ describe("buildRequestText", () => {
     });
     expect(text).not.toContain("secret");
     expect(text.indexOf("Outfits you last sent")).toBeLessThan(text.indexOf("Current message:"));
-    expect(text).toContain(`"no jeans please"\n\n${REVISE_INSTRUCTION}`);
+    expect(text).toContain(`"no jeans please"\n\n${ONE_TRIP_INSTRUCTION}\n\n${REVISE_INSTRUCTION}`);
   });
 
   it("skips the revision section when there is no previous plan with outfits", () => {
