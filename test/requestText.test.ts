@@ -7,6 +7,7 @@ import {
   PER_DAY_INSTRUCTION,
   isoDate,
   LOCATION_INSTRUCTION,
+  NOT_PLANS_INSTRUCTION,
   PLANNED_DAYS_INSTRUCTION,
 } from "../src/requestText.js";
 
@@ -34,7 +35,7 @@ describe("buildRequestText", () => {
   it("omits the history section when there is none", () => {
     const text = buildRequestText({ now, timeZone: "America/Los_Angeles", history: [], current: "Austin this Saturday" });
     expect(text).toBe(
-      `Today is Saturday, October 17, 2026 (America/Los_Angeles).\n\nCurrent message:\n"Austin this Saturday"\n\n${ONE_TRIP_INSTRUCTION}\n\n${LOCATION_INSTRUCTION}\n\n${PER_DAY_INSTRUCTION}\n\n${DRESS_INSTRUCTION}`,
+      `Today is Saturday, October 17, 2026 (America/Los_Angeles).\n\nCurrent message:\n"Austin this Saturday"\n\n${ONE_TRIP_INSTRUCTION}\n\n${NOT_PLANS_INSTRUCTION}\n\n${LOCATION_INSTRUCTION}\n\n${PER_DAY_INSTRUCTION}\n\n${DRESS_INSTRUCTION}`,
     );
   });
 
@@ -57,6 +58,8 @@ describe("buildRequestText", () => {
         '"actually dinner is on a rooftop"',
         "",
         ONE_TRIP_INSTRUCTION,
+        "",
+        NOT_PLANS_INSTRUCTION,
         "",
         LOCATION_INSTRUCTION,
         "",
@@ -101,7 +104,7 @@ describe("buildRequestText", () => {
       { date: "2026-10-30", location: "New York, NY", weather: null, activity: "Shopping", items: { dress: "Wrap dress" } },
     ]);
     expect(text).toContain("Most recent trip: 2026-10-30.");
-    expect(text).toContain(`"make Oct 24 dressier"\n\n${PLANNED_DAYS_INSTRUCTION}\n\n${LOCATION_INSTRUCTION}\n\n${PER_DAY_INSTRUCTION}`);
+    expect(text).toContain(`"make Oct 24 dressier"\n\n${PLANNED_DAYS_INSTRUCTION}\n\n${NOT_PLANS_INSTRUCTION}\n\n${LOCATION_INSTRUCTION}\n\n${PER_DAY_INSTRUCTION}`);
     expect(text).not.toContain(ONE_TRIP_INSTRUCTION);
   });
 
@@ -116,6 +119,15 @@ describe("isoDate", () => {
   it("uses the date in the given timezone", () => {
     expect(isoDate(now, "America/Los_Angeles")).toBe("2026-10-17");
     expect(isoDate(new Date("2026-10-17T23:30:00Z"), "Asia/Tokyo")).toBe("2026-10-18");
+  });
+});
+
+describe("messages that aren't plans", () => {
+  it("tells Creao to answer greetings with no outfits, before the location rule", () => {
+    const text = buildRequestText({ now, timeZone: "UTC", history: [], current: "Hi, is this Myra?" });
+    expect(text).toContain(NOT_PLANS_INSTRUCTION);
+    expect(NOT_PLANS_INSTRUCTION).toContain('{"outfits": []}');
+    expect(text.indexOf(NOT_PLANS_INSTRUCTION)).toBeLessThan(text.indexOf(LOCATION_INSTRUCTION));
   });
 });
 

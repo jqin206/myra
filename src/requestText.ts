@@ -29,8 +29,10 @@ export const DRESS_INSTRUCTION =
 export const PLANNED_DAYS_INSTRUCTION =
   'Work out which dates the current message is about. If it mentions dates (or days such as "Saturday") that are already planned above, revise only those dates: start from the planned outfit, keep that date\'s location and weather unless the message changes them, and change what the message asks for. If it mentions dates that aren\'t planned above, treat it as a new itinerary and plan those dates. If it mentions no date and only adds or changes preferences, revise every date of the most recent trip. Return only the dates you planned or revised, not the other planned dates. Earlier messages are context for preferences.';
 
+export const NOT_PLANS_INSTRUCTION =
+  'If the current message isn\'t about plans, outfits or clothing preferences (for example a greeting, small talk, or a question about who you are or what you can do), don\'t plan anything: reply with exactly {"outfits": []}.';
 export const LOCATION_INSTRUCTION =
-  'If the current message is about dates that aren\'t already planned and doesn\'t say where the user will be, don\'t guess a place or reuse an earlier trip\'s: reply with exactly {"outfits": [], "needs_location": true}.';
+  'If the current message describes plans or activities for dates that aren\'t already planned and doesn\'t say where the user will be, don\'t guess a place or reuse an earlier trip\'s: reply with exactly {"outfits": [], "needs_location": true}.';
 
 /** YYYY-MM-DD for `now` in the given timezone. */
 export function isoDate(now: Date, timeZone: string): string {
@@ -76,6 +78,6 @@ export function buildRequestText({
   }
   sections.push(`Current message:\n${quote(current)}`);
   sections.push(plannedDays.length ? PLANNED_DAYS_INSTRUCTION : ONE_TRIP_INSTRUCTION);
-  sections.push(LOCATION_INSTRUCTION, PER_DAY_INSTRUCTION, DRESS_INSTRUCTION);
+  sections.push(NOT_PLANS_INSTRUCTION, LOCATION_INSTRUCTION, PER_DAY_INSTRUCTION, DRESS_INSTRUCTION);
   return sections.join("\n\n");
 }
