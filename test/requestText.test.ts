@@ -6,6 +6,7 @@ import {
   ONE_TRIP_INSTRUCTION,
   PER_DAY_INSTRUCTION,
   isoDate,
+  DATE_INSTRUCTION,
   LOCATION_INSTRUCTION,
   NOT_PLANS_INSTRUCTION,
   PLANNED_DAYS_INSTRUCTION,
@@ -35,7 +36,7 @@ describe("buildRequestText", () => {
   it("omits the history section when there is none", () => {
     const text = buildRequestText({ now, timeZone: "America/Los_Angeles", history: [], current: "Austin this Saturday" });
     expect(text).toBe(
-      `Today is Saturday, October 17, 2026 (America/Los_Angeles).\n\nCurrent message:\n"Austin this Saturday"\n\n${ONE_TRIP_INSTRUCTION}\n\n${NOT_PLANS_INSTRUCTION}\n\n${LOCATION_INSTRUCTION}\n\n${PER_DAY_INSTRUCTION}\n\n${DRESS_INSTRUCTION}`,
+      `Today is Saturday, October 17, 2026 (America/Los_Angeles).\n\nCurrent message:\n"Austin this Saturday"\n\n${ONE_TRIP_INSTRUCTION}\n\n${NOT_PLANS_INSTRUCTION}\n\n${DATE_INSTRUCTION}\n\n${LOCATION_INSTRUCTION}\n\n${PER_DAY_INSTRUCTION}\n\n${DRESS_INSTRUCTION}`,
     );
   });
 
@@ -60,6 +61,8 @@ describe("buildRequestText", () => {
         ONE_TRIP_INSTRUCTION,
         "",
         NOT_PLANS_INSTRUCTION,
+        "",
+        DATE_INSTRUCTION,
         "",
         LOCATION_INSTRUCTION,
         "",
@@ -104,7 +107,7 @@ describe("buildRequestText", () => {
       { date: "2026-10-30", location: "New York, NY", weather: null, activity: "Shopping", items: { dress: "Wrap dress" } },
     ]);
     expect(text).toContain("Most recent trip: 2026-10-30.");
-    expect(text).toContain(`"make Oct 24 dressier"\n\n${PLANNED_DAYS_INSTRUCTION}\n\n${NOT_PLANS_INSTRUCTION}\n\n${LOCATION_INSTRUCTION}\n\n${PER_DAY_INSTRUCTION}`);
+    expect(text).toContain(`"make Oct 24 dressier"\n\n${PLANNED_DAYS_INSTRUCTION}\n\n${NOT_PLANS_INSTRUCTION}\n\n${DATE_INSTRUCTION}\n\n${LOCATION_INSTRUCTION}\n\n${PER_DAY_INSTRUCTION}`);
     expect(text).not.toContain(ONE_TRIP_INSTRUCTION);
   });
 
@@ -142,5 +145,20 @@ describe("location question", () => {
     expect(text).toContain(`You asked this user where they'll be for their previous message: "dinner Friday".`);
     expect(text.indexOf("You asked this user")).toBeLessThan(text.indexOf("Current message:"));
     expect(buildRequestText({ now, timeZone: "UTC", history: [], current: "Austin" })).not.toContain("You asked this user");
+  });
+});
+
+describe("date question", () => {
+  const now = new Date("2026-10-17T19:00:00Z");
+  it("always tells Creao to ask for dates it doesn't have", () => {
+    expect(buildRequestText({ now, timeZone: "UTC", history: [], current: "Austin — brunch and a hike" })).toContain(DATE_INSTRUCTION);
+    expect(DATE_INSTRUCTION).toContain('{"outfits": [], "needs_date": true}');
+  });
+
+  it("points Creao at the message the date answers", () => {
+    const text = buildRequestText({ now, timeZone: "UTC", history: ["Austin — brunch"], current: "Saturday", askedDateFor: "Austin — brunch" });
+    expect(text).toContain(`You asked this user when their previous message is planned for: "Austin — brunch".`);
+    expect(text.indexOf("You asked this user")).toBeLessThan(text.indexOf("Current message:"));
+    expect(buildRequestText({ now, timeZone: "UTC", history: [], current: "Saturday" })).not.toContain("You asked this user");
   });
 });

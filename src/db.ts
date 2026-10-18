@@ -252,7 +252,11 @@ export async function recordCreaoRun(
 }
 
 /** The text of the user's last message if Myra answered it, within the last day, by asking where they'll be. */
-export async function pendingLocationQuestion(db: Queryable, spaceId: string): Promise<string | undefined> {
+/** The user's message Myra last answered with a date or location question, if that was its latest run (within a day). */
+export async function pendingQuestion(
+  db: Queryable,
+  spaceId: string,
+): Promise<{ text: string; location: boolean; date: boolean } | undefined> {
   const res = await db.query<{ status: string; text: string | null }>(
     `SELECT r.status, m.text FROM creao_runs r LEFT JOIN messages m ON m.message_id = r.message_id
      WHERE r.space_id = $1 AND r.created_at > now() - interval '1 day'
@@ -260,7 +264,8 @@ export async function pendingLocationQuestion(db: Queryable, spaceId: string): P
     [spaceId],
   );
   const row = res.rows[0];
-  return row?.status === "needs_location" ? (row.text ?? undefined) : undefined;
+  if (!row?.text || !row.status.startsWith("needs_")) return undefined;
+  return { text: row.text, location: row.status.includes("location"), date: row.status.includes("date") };
 }
 
 /** The most recent new-trip plan sent to this user in the last 7 days; its dates are the "most recent trip". */

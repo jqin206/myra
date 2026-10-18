@@ -4,7 +4,7 @@ import {
   finishMessage,
   nextInterimIndex,
   lastPlan,
-  pendingLocationQuestion,
+  pendingQuestion,
   recentUserMessages,
   recordCreaoRun,
   savePlannedDays,
@@ -16,6 +16,7 @@ import { CreaoError, type CreaoOutcome } from "./creao.js";
 import {
   ERROR_REPLY,
   interimReply,
+  questionFor,
   TEXT_ONLY_REPLY,
   TIMEOUT_REPLY,
   formatReply,
@@ -103,7 +104,7 @@ export async function handleIncoming(msg: Incoming, deps: HandlerDeps): Promise<
   const plannedDays = await upcomingDays(deps.db, msg.spaceId, today);
   const latest = await lastPlan<OutfitPlan>(deps.db, msg.spaceId);
   const latestTripDates = planDates(latest).filter((d) => d >= today);
-  const askedLocationFor = await pendingLocationQuestion(deps.db, msg.spaceId);
+  const asked = await pendingQuestion(deps.db, msg.spaceId);
   const request = buildRequestText({
     now,
     timeZone,
@@ -111,7 +112,8 @@ export async function handleIncoming(msg: Incoming, deps: HandlerDeps): Promise<
     current: msg.text,
     plannedDays,
     latestTripDates,
-    askedLocationFor,
+    askedLocationFor: asked?.location ? asked.text : undefined,
+    askedDateFor: asked?.date ? asked.text : undefined,
   });
 
   // Sent alongside the Creao run so a slow Photon send never delays planning or the deadline.
@@ -131,7 +133,8 @@ export async function handleIncoming(msg: Incoming, deps: HandlerDeps): Promise<
   try {
     outcome = await deps.planner.run({ request, temp_unit: tempUnit }, controller.signal);
     texts = formatReply(outcome.plan);
-    if (outcome.plan.needs_location === true && !outcome.plan.outfits?.length) status = "needs_location";
+    const question = outcome.plan.outfits?.length ? undefined : questionFor(outcome.plan);
+    if (question) status = question.status;
   } catch (error) {
     const reason = controller.signal.aborted ? controller.signal.reason : error;
     status = reason instanceof CreaoError ? reason.code : errorCode(reason);
