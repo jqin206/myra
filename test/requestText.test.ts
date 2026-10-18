@@ -6,6 +6,7 @@ import {
   ONE_TRIP_INSTRUCTION,
   PER_DAY_INSTRUCTION,
   isoDate,
+  LOCATION_INSTRUCTION,
   PLANNED_DAYS_INSTRUCTION,
 } from "../src/requestText.js";
 
@@ -33,7 +34,7 @@ describe("buildRequestText", () => {
   it("omits the history section when there is none", () => {
     const text = buildRequestText({ now, timeZone: "America/Los_Angeles", history: [], current: "Austin this Saturday" });
     expect(text).toBe(
-      `Today is Saturday, October 17, 2026 (America/Los_Angeles).\n\nCurrent message:\n"Austin this Saturday"\n\n${ONE_TRIP_INSTRUCTION}\n\n${PER_DAY_INSTRUCTION}\n\n${DRESS_INSTRUCTION}`,
+      `Today is Saturday, October 17, 2026 (America/Los_Angeles).\n\nCurrent message:\n"Austin this Saturday"\n\n${ONE_TRIP_INSTRUCTION}\n\n${LOCATION_INSTRUCTION}\n\n${PER_DAY_INSTRUCTION}\n\n${DRESS_INSTRUCTION}`,
     );
   });
 
@@ -56,6 +57,8 @@ describe("buildRequestText", () => {
         '"actually dinner is on a rooftop"',
         "",
         ONE_TRIP_INSTRUCTION,
+        "",
+        LOCATION_INSTRUCTION,
         "",
         PER_DAY_INSTRUCTION,
         "",
@@ -98,7 +101,7 @@ describe("buildRequestText", () => {
       { date: "2026-10-30", location: "New York, NY", weather: null, activity: "Shopping", items: { dress: "Wrap dress" } },
     ]);
     expect(text).toContain("Most recent trip: 2026-10-30.");
-    expect(text).toContain(`"make Oct 24 dressier"\n\n${PLANNED_DAYS_INSTRUCTION}\n\n${PER_DAY_INSTRUCTION}`);
+    expect(text).toContain(`"make Oct 24 dressier"\n\n${PLANNED_DAYS_INSTRUCTION}\n\n${LOCATION_INSTRUCTION}\n\n${PER_DAY_INSTRUCTION}`);
     expect(text).not.toContain(ONE_TRIP_INSTRUCTION);
   });
 
@@ -113,5 +116,19 @@ describe("isoDate", () => {
   it("uses the date in the given timezone", () => {
     expect(isoDate(now, "America/Los_Angeles")).toBe("2026-10-17");
     expect(isoDate(new Date("2026-10-17T23:30:00Z"), "Asia/Tokyo")).toBe("2026-10-18");
+  });
+});
+
+describe("location question", () => {
+  const now = new Date("2026-10-17T19:00:00Z");
+  it("always tells Creao to ask for a place it doesn't have", () => {
+    expect(buildRequestText({ now, timeZone: "UTC", history: [], current: "dinner Friday" })).toContain(LOCATION_INSTRUCTION);
+  });
+
+  it("points Creao at the message the location answers", () => {
+    const text = buildRequestText({ now, timeZone: "UTC", history: ["dinner Friday"], current: "Austin", askedLocationFor: "dinner Friday" });
+    expect(text).toContain(`You asked this user where they'll be for their previous message: "dinner Friday".`);
+    expect(text.indexOf("You asked this user")).toBeLessThan(text.indexOf("Current message:"));
+    expect(buildRequestText({ now, timeZone: "UTC", history: [], current: "Austin" })).not.toContain("You asked this user");
   });
 });
