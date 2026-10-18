@@ -17,6 +17,8 @@ export interface RequestTextInput {
   latestTripDates?: string[];
   /** The user's previous message, when Myra replied to it by asking where they'll be. */
   askedLocationFor?: string;
+  /** The user's previous message, when Myra replied to it by asking when it's planned. */
+  askedDateFor?: string;
 }
 
 export const HISTORY_LIMIT = 10;
@@ -34,6 +36,9 @@ export const NOT_PLANS_INSTRUCTION =
 export const LOCATION_INSTRUCTION =
   'If the current message describes plans or activities for dates that aren\'t already planned and doesn\'t say where the user will be, don\'t guess a place or reuse an earlier trip\'s: reply with exactly {"outfits": [], "needs_location": true}.';
 
+export const DATE_INSTRUCTION =
+  'If the current message describes plans (a place or activities) but mentions no date or day at all (no "today", "tomorrow", weekday or calendar date), and it isn\'t changing a trip that\'s already planned or the most recent trip or answering a question you asked above, don\'t assume today or any other date: reply with exactly {"outfits": [], "needs_date": true}. If it also doesn\'t say where the user will be, reply with exactly {"outfits": [], "needs_date": true, "needs_location": true}.';
+
 /** YYYY-MM-DD for `now` in the given timezone. */
 export function isoDate(now: Date, timeZone: string): string {
   return new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone }).format(now);
@@ -47,7 +52,7 @@ export function formatToday(now: Date, timeZone: string): string {
     year: "numeric",
     timeZone,
   }).format(now);
-  return `Today is ${date} (${timeZone}).`;
+  return `Today is ${date} (${timeZone}). Use it only to work out dates the message mentions; it isn't the date of the plans.`;
 }
 
 const quote = (text: string) => `"${text.replace(/\s+/g, " ").trim()}"`;
@@ -60,6 +65,7 @@ export function buildRequestText({
   plannedDays = [],
   latestTripDates = [],
   askedLocationFor,
+  askedDateFor,
 }: RequestTextInput): string {
   const sections = [formatToday(now, timeZone)];
   const recent = history.slice(-HISTORY_LIMIT);
@@ -76,8 +82,13 @@ export function buildRequestText({
       `You asked this user where they'll be for their previous message: ${quote(askedLocationFor)}. If the current message names a place, plan that previous message there.`,
     );
   }
+  if (askedDateFor) {
+    sections.push(
+      `You asked this user when their previous message is planned for: ${quote(askedDateFor)}. If the current message gives dates or days, plan that previous message for them.`,
+    );
+  }
   sections.push(`Current message:\n${quote(current)}`);
   sections.push(plannedDays.length ? PLANNED_DAYS_INSTRUCTION : ONE_TRIP_INSTRUCTION);
-  sections.push(NOT_PLANS_INSTRUCTION, LOCATION_INSTRUCTION, PER_DAY_INSTRUCTION, DRESS_INSTRUCTION);
+  sections.push(NOT_PLANS_INSTRUCTION, DATE_INSTRUCTION, LOCATION_INSTRUCTION, PER_DAY_INSTRUCTION, DRESS_INSTRUCTION);
   return sections.join("\n\n");
 }

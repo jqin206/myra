@@ -36,12 +36,25 @@ export interface OutfitPlan {
   assumptions?: string[] | null;
   summary?: string | null;
   needs_location?: boolean | null;
+  needs_date?: boolean | null;
 }
 
 export const TEXT_ONLY_REPLY = "I can only read text right now — just type out your plans!";
 export const HELP_REPLY =
   "Hi, I'm Myra! Send me your itinerary for your next trip or your plans for the next few days, and I'll help you generate an outfit!";
 export const LOCATION_REPLY = "Where will you be? Send me the city and I'll put together your outfits.";
+export const DATE_REPLY = "When is this? Send me the date or days and I'll put together your outfits.";
+export const DATE_LOCATION_REPLY = "Where and when is this? Send me the city and the date or days, and I'll put together your outfits.";
+
+/** The question to ask when Creao needs a date or a place before it can plan. */
+export function questionFor(plan: OutfitPlan): { status: string; reply: string } | undefined {
+  const date = plan.needs_date === true;
+  const location = plan.needs_location === true;
+  if (date && location) return { status: "needs_date_location", reply: DATE_LOCATION_REPLY };
+  if (date) return { status: "needs_date", reply: DATE_REPLY };
+  if (location) return { status: "needs_location", reply: LOCATION_REPLY };
+  return undefined;
+}
 export const INTERIM_REPLIES = [
   "Tailoring your looks...",
   "Ironing out the details...",
@@ -215,7 +228,7 @@ export function formatReply(plan: OutfitPlan, limit = SPLIT_AT): string[] {
     byDay.at(-1)!.push(block);
     lastDay = day;
   }
-  if (!byDay.length) return [plan.needs_location === true ? LOCATION_REPLY : HELP_REPLY];
+  if (!byDay.length) return [questionFor(plan)?.reply ?? HELP_REPLY];
 
   // An outfit's own date wins over the plan-level date when they disagree.
   const shownDate = multiDay ? undefined : (days[0] ?? str(plan.date));

@@ -2,7 +2,7 @@ import pg from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { CreaoError } from "../src/creao.js";
 import { claimMessage, loadCursor, nextInterimIndex, migrate, saveCursor } from "../src/db.js";
-import { ERROR_REPLY, INTERIM_REPLIES, LOCATION_REPLY, interimReply, TEXT_ONLY_REPLY, TIMEOUT_REPLY } from "../src/format.js";
+import { DATE_REPLY, ERROR_REPLY, INTERIM_REPLIES, LOCATION_REPLY, interimReply, TEXT_ONLY_REPLY, TIMEOUT_REPLY } from "../src/format.js";
 import { handleIncoming, type HandlerDeps, type Planner } from "../src/handler.js";
 import type { IncomingText } from "../src/incoming.js";
 import example from "./fixtures/creao-example.json" with { type: "json" };
@@ -179,6 +179,17 @@ d("dedupe / idempotency (Postgres)", () => {
     expect(requests[1]).toContain(`for their previous message: "dinner Friday"`);
     await handleIncoming(msg("m3", "thanks"), deps());
     expect(requests[2]).not.toContain("You asked this user");
+  });
+
+  it("asks for a date, then points the next request at the message it answers", async () => {
+    const asks = planner(async () => ({ plan: { outfits: [], needs_date: true } }));
+    await handleIncoming(msg("m1", "Austin — brunch and a hike", at(3)), deps({ planner: asks }));
+    expect(sent.at(-1)!.text).toBe(DATE_REPLY);
+    const runs = await pool.query("SELECT status FROM creao_runs");
+    expect(runs.rows).toEqual([{ status: "needs_date" }]);
+    await handleIncoming(msg("m2", "this Saturday", at(2)), deps());
+    expect(requests[1]).toContain(`when their previous message is planned for: "Austin — brunch and a hike"`);
+    expect(requests[1]).not.toContain("where they'll be");
   });
 
   it("answers non-text messages with the text-only reply", async () => {

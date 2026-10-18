@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { extractPlanFromBody } from "../src/creao.js";
-import { HELP_REPLY, INTERIM_REPLIES, LOCATION_REPLY, formatReply, interimReply, weatherEmoji, type OutfitPlan } from "../src/format.js";
+import { DATE_LOCATION_REPLY, DATE_REPLY, HELP_REPLY, INTERIM_REPLIES, LOCATION_REPLY, formatReply, interimReply, weatherEmoji, type OutfitPlan } from "../src/format.js";
 import example from "./fixtures/creao-example.json" with { type: "json" };
 import missing from "./fixtures/creao-missing-optionals.json" with { type: "json" };
 import wrapped from "./fixtures/creao-wrapped.json" with { type: "json" };
@@ -199,5 +199,10 @@ describe("needs_location", () => {
   it("asks where the user will be when Creao needs a place", () => {
     expect(formatReply({ outfits: [], needs_location: true })).toEqual([LOCATION_REPLY]);
     expect(formatReply({ outfits: [] })).toEqual([HELP_REPLY]);
+  });
+
+  it("asks when, or where and when, when Creao needs a date", () => {
+    expect(formatReply({ outfits: [], needs_date: true })).toEqual([DATE_REPLY]);
+    expect(formatReply({ outfits: [], needs_date: true, needs_location: true })).toEqual([DATE_LOCATION_REPLY]);
   });
 });
