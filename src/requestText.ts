@@ -19,6 +19,8 @@ export interface RequestTextInput {
   askedLocationFor?: string;
   /** The user's previous message, when Myra replied to it by asking when it's planned. */
   askedDateFor?: string;
+  /** Onboarding answers, stored as the user wrote them. */
+  profile?: { clothing?: string | null; style?: string | null };
 }
 
 export const HISTORY_LIMIT = 10;
@@ -35,6 +37,9 @@ export const NOT_PLANS_INSTRUCTION =
   'If the current message isn\'t about plans, outfits or clothing preferences (for example a greeting, small talk, or a question about who you are or what you can do), don\'t plan anything: reply with exactly {"outfits": []}.';
 export const LOCATION_INSTRUCTION =
   'If the current message describes plans or activities for dates that aren\'t already planned and doesn\'t say where the user will be, don\'t guess a place or reuse an earlier trip\'s: reply with exactly {"outfits": [], "needs_location": true}.';
+
+export const PROFILE_HEADING =
+  "What this user told you about themselves when they started (newer messages override it; dress them accordingly):";
 
 export const DATE_INSTRUCTION =
   'If the current message describes plans (a place or activities) but mentions no date or day at all (no "today", "tomorrow", weekday or calendar date), and it isn\'t changing a trip that\'s already planned or the most recent trip or answering a question you asked above, don\'t assume today or any other date: reply with exactly {"outfits": [], "needs_date": true}. If it also doesn\'t say where the user will be, reply with exactly {"outfits": [], "needs_date": true, "needs_location": true}.';
@@ -66,8 +71,16 @@ export function buildRequestText({
   latestTripDates = [],
   askedLocationFor,
   askedDateFor,
+  profile,
 }: RequestTextInput): string {
   const sections = [formatToday(now, timeZone)];
+  const about = [
+    profile?.clothing && `Clothes to suggest: ${quote(profile.clothing)}`,
+    profile?.style && `Style: ${quote(profile.style)}`,
+  ].filter(Boolean);
+  if (about.length) {
+    sections.push([PROFILE_HEADING, ...about.map((a) => `- ${a}`)].join("\n"));
+  }
   const recent = history.slice(-HISTORY_LIMIT);
   if (recent.length) {
     sections.push(["Earlier messages from this user (oldest first):", ...recent.map((t) => `- ${quote(t)}`)].join("\n"));
