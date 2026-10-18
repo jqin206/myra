@@ -2,6 +2,7 @@ import type { Queryable } from "./db.js";
 import {
   claimMessage,
   finishMessage,
+  interimIndex,
   lastPlan,
   pendingLocationQuestion,
   recentUserMessages,
@@ -114,7 +115,8 @@ export async function handleIncoming(msg: Incoming, deps: HandlerDeps): Promise<
   });
 
   // Sent alongside the Creao run so a slow Photon send never delays planning or the deadline.
-  const interim = reply(interimReply(msg.messageId), `reply:${msg.messageId}:interim`).catch((error) => {
+  const interimText = interimReply(msg.spaceId, await interimIndex(deps.db, msg.messageId, msg.spaceId));
+  const interim = reply(interimText, `reply:${msg.messageId}:interim`).catch((error) => {
     log.warn("interim_send_failed", { ...fields, error: errorCode(error) });
   });
 

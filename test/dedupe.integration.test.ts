@@ -1,8 +1,8 @@
 import pg from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { CreaoError } from "../src/creao.js";
-import { claimMessage, loadCursor, migrate, saveCursor } from "../src/db.js";
-import { ERROR_REPLY, LOCATION_REPLY, interimReply, TEXT_ONLY_REPLY, TIMEOUT_REPLY } from "../src/format.js";
+import { claimMessage, interimIndex, loadCursor, migrate, saveCursor } from "../src/db.js";
+import { ERROR_REPLY, INTERIM_REPLIES, LOCATION_REPLY, interimReply, TEXT_ONLY_REPLY, TIMEOUT_REPLY } from "../src/format.js";
 import { handleIncoming, type HandlerDeps, type Planner } from "../src/handler.js";
 import type { IncomingText } from "../src/incoming.js";
 import example from "./fixtures/creao-example.json" with { type: "json" };
@@ -184,7 +184,7 @@ d("dedupe / idempotency (Postgres)", () => {
     });
     await handleIncoming(msg("m1"), deps({ planner: down, timeoutMs: 80 }));
     expect(sent.map((s) => [s.text, s.idempotencyKey])).toEqual([
-      [interimReply("m1"), "reply:m1:interim"],
+      [interimReply("spc_1", 0), "reply:m1:interim"],
       [TIMEOUT_REPLY, "reply:m1"],
     ]);
     const runs = await pool.query("SELECT status FROM creao_runs");
@@ -196,7 +196,7 @@ d("dedupe / idempotency (Postgres)", () => {
       throw new CreaoError("http_503", "run_9");
     });
     await handleIncoming(msg("m1"), deps({ planner: failing }));
-    expect(sent.map((s) => s.text)).toEqual([interimReply("m1"), ERROR_REPLY]);
+    expect(sent.map((s) => s.text)).toEqual([interimReply("spc_1", 0), ERROR_REPLY]);
   });
 
   it("starts planning and answers even when the interim send stalls", async () => {
@@ -214,8 +214,17 @@ d("dedupe / idempotency (Postgres)", () => {
 
   it("sends the interim message before the outfits", async () => {
     await handleIncoming(msg("m1"), deps());
-    expect(sent[0]).toMatchObject({ text: interimReply("m1"), idempotencyKey: "reply:m1:interim" });
+    expect(sent[0]).toMatchObject({ text: interimReply("spc_1", 0), idempotencyKey: "reply:m1:interim" });
     expect(sent[1]!.idempotencyKey).toBe("reply:m1");
+  });
+
+  it("goes through every pun before repeating one, and keeps a message's pun on retry", async () => {
+    const n = INTERIM_REPLIES.length;
+    for (let i = 0; i < n; i++) await handleIncoming(msg(`m${i}`), deps());
+    const interims = sent.filter((s) => s.idempotencyKey.endsWith(":interim")).map((s) => s.text);
+    expect(new Set(interims).size).toBe(n);
+    expect(interims).toEqual(Array.from({ length: n }, (_, i) => interimReply("spc_1", i)));
+    expect(await interimIndex(pool, "m3", "spc_1")).toBe(3);
   });
 
   it("saves a stated temperature unit and uses it for later requests", async () => {
