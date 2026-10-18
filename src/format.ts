@@ -12,6 +12,7 @@ export interface Outfit {
   time?: string | null;
   items?: OutfitItems | null;
   rationale?: string | null;
+  weather?: Weather | null;
 }
 
 export interface Weather {
@@ -75,10 +76,6 @@ export function formatPlanDate(date: string | undefined): string | undefined {
   return `${WEEKDAYS[d.getUTCDay()]} ${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
 }
 
-function sentence(text: string): string {
-  return /[.!?…]$/.test(text) ? text : `${text}.`;
-}
-
 function lowerFirst(text: string): string {
   return /^[A-Z][a-z]/.test(text) ? text[0]!.toLowerCase() + text.slice(1) : text;
 }
@@ -116,7 +113,7 @@ const ITEM_LABELS: [keyof OutfitItems, string][] = [
   ["footwear", "👟 Shoes"],
 ];
 
-function outfitBlock(o: Outfit, showDate: boolean): string | undefined {
+function outfitBlock(o: Outfit, showDate: boolean, weather: string | undefined): string | undefined {
   const activity = str(o.activity);
   const head = [
     showDate ? formatPlanDate(str(o.date)) : undefined,
@@ -134,51 +131,14 @@ function outfitBlock(o: Outfit, showDate: boolean): string | undefined {
     .map(piece)
     .filter(Boolean) as string[];
   if (accessories.length) lines.push(`👜 Extras: ${accessories.map((a) => a.replace(/[.]$/, "")).join(", ")}`);
-  const why = str(o.rationale);
-  if (why) lines.push(`💡 ${why}`);
-  const body = lines.filter(Boolean) as string[];
+  const body = [weather, ...lines].filter(Boolean) as string[];
   if (!head && !body.length) return undefined;
   return [head ? head : undefined, ...body].filter(Boolean).join("\n");
 }
 
-const RESOLVED_DATE =
-  /\b(resolv|interpret|took|treat|read)\w*\b.*\b(today|tonight|tomorrow|weekend|date|this|next|coming|(mon|tues|wednes|thurs|fri|satur|sun)day)\b/i;
-
-/** True when an assumption only restates the date already shown in the header. */
-export function isDateAssumption(text: string, planDate: string | undefined): boolean {
-  // "…from the stated current date of Saturday, 2026-10-17" names the reference date, not the plan date.
-  const stripped = text.replace(/\bfrom (the (stated )?current date( of)? )?(\w+,? )?\d{4}-\d{2}-\d{2}/gi, "");
-  const isoDates: string[] = stripped.match(/\d{4}-\d{2}-\d{2}/g) ?? [];
-  if (isoDates.some((d) => d !== planDate)) return false;
-  return (planDate !== undefined && isoDates.includes(planDate)) || RESOLVED_DATE.test(text);
-}
-
-function assumptionClause(text: string): string {
-  const t = text.trim().replace(/[.]$/, "");
-  const assumed = t.match(/^assum(?:ed|ing|ption:?)\s+(?:that\s+)?(.*)$/i);
-  if (assumed) return `I assumed ${assumed[1]}`;
-  const firstWord = t.split(/\s+/)[0] ?? "";
-  if (/^[A-Z][a-z]+ed$/.test(firstWord)) return `I ${lowerFirst(t)}`;
-  return t;
-}
-
-function assumptionsLine(plan: OutfitPlan, dateShown: boolean): string | undefined {
-  const date = str(plan.date);
-  const list = (plan.assumptions ?? [])
-    .map(str)
-    .filter((a): a is string => !!a)
-    .filter((a) => !(dateShown && isDateAssumption(a, date)));
-  if (!list.length) return undefined;
-  return `📝 ${list.map(assumptionClause).join("; ")} — let me know if anything's off.`;
-}
-
-function footerBlock(plan: OutfitPlan, dateShown: boolean): string | undefined {
+function footerBlock(plan: OutfitPlan): string | undefined {
   const extras = (plan.extras ?? []).map(str).filter(Boolean) as string[];
-  const lines = [
-    extras.length ? `🎒 Bring: ${extras.map(lowerFirst).join(", ")}` : undefined,
-    assumptionsLine(plan, dateShown),
-  ].filter(Boolean);
-  return lines.length ? lines.join("\n") : undefined;
+  return extras.length ? `🎒 Bring: ${extras.map(lowerFirst).join(", ")}` : undefined;
 }
 
 /** Returns the reply as iMessage texts: one per day, the header on the first and the footer on the last. */
@@ -190,10 +150,13 @@ export function formatReply(plan: OutfitPlan, limit = SPLIT_AT): string[] {
   const byDay: string[][] = [];
   let lastDay: string | undefined;
   for (const o of list) {
-    const block = outfitBlock(o, multiDay);
-    if (!block) continue;
     const day = str(o.date) ?? lastDay;
-    if (!byDay.length || day !== lastDay) byDay.push([]);
+    const newDay = !byDay.length || day !== lastDay;
+    // Each day's weather is shown once, above its first outfit; the trip-level weather only stands in for a one-day plan.
+    const weather = newDay ? weatherLine(o.weather ?? (multiDay ? undefined : plan.weather)) : undefined;
+    const block = outfitBlock(o, multiDay, weather);
+    if (!block) continue;
+    if (newDay) byDay.push([]);
     byDay.at(-1)!.push(block);
     lastDay = day;
   }
@@ -206,11 +169,10 @@ export function formatReply(plan: OutfitPlan, limit = SPLIT_AT): string[] {
   const header = [
     location ? `📍 ${location}` : undefined,
     dateText ? `🗓️ ${dateText}` : undefined,
-    weatherLine(plan.weather),
   ]
     .filter(Boolean)
     .join("\n");
-  const footer = footerBlock({ ...plan, date: shownDate ?? plan.date }, !!dateText);
+  const footer = footerBlock(plan);
 
   if (header) byDay[0]![0] = `${header}\n\n${byDay[0]![0]}`;
   // Each day gets its own text; a day too long for one text is split between outfits.

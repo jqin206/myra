@@ -7,7 +7,7 @@ export interface RequestTextInput {
 
 export const HISTORY_LIMIT = 10;
 export const PER_DAY_INSTRUCTION =
-  'Reply format: give exactly one outfit per day (not one per activity) that works across all of that day\'s activities, and set each outfit\'s "date" field to that day\'s date (YYYY-MM-DD).';
+  'Reply format: give exactly one outfit per day (not one per activity) that works across all of that day\'s activities, and set each outfit\'s "date" field to that day\'s date (YYYY-MM-DD), and give each outfit a "weather" object with that day\'s forecast (same fields as the top-level weather).';
 
 export function formatToday(now: Date, timeZone: string): string {
   const date = new Intl.DateTimeFormat("en-US", {
