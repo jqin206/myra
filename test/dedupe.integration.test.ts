@@ -1,7 +1,7 @@
 import pg from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { CreaoError } from "../src/creao.js";
-import { claimMessage, interimIndex, loadCursor, migrate, saveCursor } from "../src/db.js";
+import { claimMessage, loadCursor, nextInterimIndex, migrate, saveCursor } from "../src/db.js";
 import { ERROR_REPLY, INTERIM_REPLIES, LOCATION_REPLY, interimReply, TEXT_ONLY_REPLY, TIMEOUT_REPLY } from "../src/format.js";
 import { handleIncoming, type HandlerDeps, type Planner } from "../src/handler.js";
 import type { IncomingText } from "../src/incoming.js";
@@ -62,7 +62,7 @@ d("dedupe / idempotency (Postgres)", () => {
   it("replies exactly once when the same message is delivered twice", async () => {
     await handleIncoming(msg("m1"), deps());
     await handleIncoming(msg("m1"), deps());
-    expect(sent.map((s) => s.idempotencyKey)).toEqual(["reply:m1:interim", "reply:m1"]);
+    expect(sent.map((s) => s.idempotencyKey)).toEqual(["reply:m1:interim:0", "reply:m1"]);
     expect(sent[1]).toMatchObject({ idempotencyKey: "reply:m1", spaceId: "spc_1", senderId: "usr_agent" });
     expect(sent[1]).not.toHaveProperty("parentMessageId");
     expect(requests).toHaveLength(1);
@@ -83,7 +83,7 @@ d("dedupe / idempotency (Postgres)", () => {
     await new Promise((r) => setTimeout(r, 50));
     release();
     await Promise.all([a, b]);
-    expect(sent.map((s) => s.idempotencyKey)).toEqual(["reply:m1:interim", "reply:m1"]);
+    expect(sent.map((s) => s.idempotencyKey)).toEqual(["reply:m1:interim:0", "reply:m1"]);
     expect(requests).toHaveLength(1);
   });
 
@@ -92,9 +92,19 @@ d("dedupe / idempotency (Postgres)", () => {
     expect(await claimMessage(pool, "m1", "spc_1", "dead-worker", 120)).toBe("claimed");
     await pool.query("UPDATE processed_messages SET claimed_at = now() - interval '10 minutes'");
     await handleIncoming(msg("m1"), deps());
-    expect(sent.map((s) => s.idempotencyKey)).toEqual(["reply:m1:interim", "reply:m1"]);
+    expect(sent.map((s) => s.idempotencyKey)).toEqual(["reply:m1:interim:0", "reply:m1"]);
     const row = await pool.query("SELECT status FROM processed_messages WHERE message_id = 'm1'");
     expect(row.rows[0].status).toBe("replied");
+  });
+
+  it("sends a retried message the next pun, not the one from the crashed attempt", async () => {
+    expect(await claimMessage(pool, "m1", "spc_1", "dead-worker", 120)).toBe("claimed");
+    // The crashed attempt already used the conversation's first pun.
+    await pool.query("INSERT INTO users (space_id, interim_count) VALUES ('spc_1', 1)");
+    await pool.query("UPDATE processed_messages SET claimed_at = now() - interval '10 minutes'");
+    await handleIncoming(msg("m1"), deps());
+    expect(sent[0]).toMatchObject({ text: interimReply("spc_1", 1), idempotencyKey: "reply:m1:interim:1" });
+    expect(interimReply("spc_1", 1)).not.toBe(interimReply("spc_1", 0));
   });
 
   it("does not take over a fresh claim held by another worker", async () => {
@@ -184,7 +194,7 @@ d("dedupe / idempotency (Postgres)", () => {
     });
     await handleIncoming(msg("m1"), deps({ planner: down, timeoutMs: 80 }));
     expect(sent.map((s) => [s.text, s.idempotencyKey])).toEqual([
-      [interimReply("spc_1", 0), "reply:m1:interim"],
+      [interimReply("spc_1", 0), "reply:m1:interim:0"],
       [TIMEOUT_REPLY, "reply:m1"],
     ]);
     const runs = await pool.query("SELECT status FROM creao_runs");
@@ -203,7 +213,7 @@ d("dedupe / idempotency (Postgres)", () => {
     const stalled: Sent[] = [];
     const sender = {
       send: async (r: Sent) => {
-        if (r.idempotencyKey.endsWith(":interim")) return new Promise<void>(() => {});
+        if (r.idempotencyKey.includes(":interim:")) return new Promise<void>(() => {});
         stalled.push(r);
       },
     };
@@ -214,17 +224,17 @@ d("dedupe / idempotency (Postgres)", () => {
 
   it("sends the interim message before the outfits", async () => {
     await handleIncoming(msg("m1"), deps());
-    expect(sent[0]).toMatchObject({ text: interimReply("spc_1", 0), idempotencyKey: "reply:m1:interim" });
+    expect(sent[0]).toMatchObject({ text: interimReply("spc_1", 0), idempotencyKey: "reply:m1:interim:0" });
     expect(sent[1]!.idempotencyKey).toBe("reply:m1");
   });
 
-  it("goes through every pun before repeating one, and keeps a message's pun on retry", async () => {
+  it("goes through every pun before repeating one", async () => {
     const n = INTERIM_REPLIES.length;
     for (let i = 0; i < n; i++) await handleIncoming(msg(`m${i}`), deps());
-    const interims = sent.filter((s) => s.idempotencyKey.endsWith(":interim")).map((s) => s.text);
+    const interims = sent.filter((s) => s.idempotencyKey.includes(":interim:")).map((s) => s.text);
     expect(new Set(interims).size).toBe(n);
     expect(interims).toEqual(Array.from({ length: n }, (_, i) => interimReply("spc_1", i)));
-    expect(await interimIndex(pool, "m3", "spc_1")).toBe(3);
+    expect(await nextInterimIndex(pool, "spc_1")).toBe(n);
   });
 
   it("saves a stated temperature unit and uses it for later requests", async () => {
@@ -245,7 +255,7 @@ d("dedupe / idempotency (Postgres)", () => {
     await handleIncoming(msg("m1"), deps({ planner: planner(async () => ({ plan: long })) }));
     expect(sent.length).toBeGreaterThan(2);
     const keys = sent.map((s) => s.idempotencyKey);
-    expect(keys[0]).toBe("reply:m1:interim");
+    expect(keys[0]).toBe("reply:m1:interim:0");
     expect(keys.slice(1)).toEqual(keys.slice(1).map((_, i) => (i === 0 ? "reply:m1" : `reply:m1:${i + 1}`)));
   });
 

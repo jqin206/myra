@@ -74,7 +74,6 @@ const MIGRATIONS: { id: string; sql: string }[] = [
     id: "004_interim_rotation",
     sql: `
       ALTER TABLE users ADD COLUMN IF NOT EXISTS interim_count INTEGER NOT NULL DEFAULT 0;
-      ALTER TABLE processed_messages ADD COLUMN IF NOT EXISTS interim_index INTEGER;
     `,
   },
 ];
@@ -181,27 +180,13 @@ export async function finishMessage(
   ]);
 }
 
-/**
- * Which of the conversation's puns this message gets: the next one in the
- * conversation, saved on the message so a retry sends the same pun.
- */
-export async function interimIndex(db: Queryable, messageId: string, spaceId: string): Promise<number> {
-  const saved = await db.query<{ interim_index: number | null }>(
-    "SELECT interim_index FROM processed_messages WHERE message_id = $1",
-    [messageId],
+/** Takes the conversation's next pun position; every attempt, including a retry, gets a new one. */
+export async function nextInterimIndex(db: Queryable, spaceId: string): Promise<number> {
+  const res = await db.query<{ idx: number }>(
+    "UPDATE users SET interim_count = interim_count + 1 WHERE space_id = $1 RETURNING interim_count - 1 AS idx",
+    [spaceId],
   );
-  const existing = saved.rows[0]?.interim_index;
-  if (existing != null) return existing;
-  const res = await db.query<{ interim_index: number | null }>(
-    `WITH bumped AS (
-       UPDATE users SET interim_count = interim_count + 1 WHERE space_id = $2 RETURNING interim_count - 1 AS idx
-     )
-     UPDATE processed_messages SET interim_index = (SELECT idx FROM bumped)
-     WHERE message_id = $1
-     RETURNING interim_index`,
-    [messageId, spaceId],
-  );
-  return res.rows[0]?.interim_index ?? 0;
+  return res.rows[0]?.idx ?? 0;
 }
 
 export async function recentUserMessages(
