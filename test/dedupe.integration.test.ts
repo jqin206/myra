@@ -115,6 +115,25 @@ d("dedupe / idempotency (Postgres)", () => {
     expect(last).toContain('Current message:\n"actually dinner is on a rooftop"');
   });
 
+  it("sends the last plan back to Creao so a follow-up can revise it", async () => {
+    await handleIncoming(msg("m1", "Austin this Saturday", new Date(Date.now() - 60_000).toISOString()), deps());
+    expect(requests[0]).not.toContain("Outfits you last sent");
+    await handleIncoming(msg("m2", "no jeans please"), deps());
+    expect(requests[1]).toContain("Outfits you last sent this user (JSON):");
+    expect(requests[1]).toContain(JSON.stringify(example.outfits[0]!.items.top));
+  });
+
+  it("doesn't save failed runs or plans older than 7 days as the last plan", async () => {
+    await handleIncoming(msg("m1"), deps());
+    await pool.query("UPDATE creao_runs SET created_at = now() - interval '8 days'");
+    const failing = planner(async () => {
+      throw new CreaoError("failed");
+    });
+    await handleIncoming(msg("m2", "hello again"), deps({ planner: failing }));
+    await handleIncoming(msg("m3", "no jeans please"), deps());
+    expect(requests.at(-1)).not.toContain("Outfits you last sent");
+  });
+
   it("answers non-text messages with the text-only reply", async () => {
     await handleIncoming({ kind: "non_text", messageId: "m1", spaceId: "spc_1", senderId: "usr_agent", createdAt: new Date().toISOString() }, deps());
     expect(sent.map((s) => [s.text, s.idempotencyKey])).toEqual([[TEXT_ONLY_REPLY, "reply:m1"]]);

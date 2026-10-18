@@ -158,5 +158,12 @@ describe("formatReply one outfit per day", () => {
     expect(messages).toEqual(["🗓️ Sat Oct 24\n\nBrunch\n👕 Top: Sweater\n\nDinner\n👕 Top: Sweater"]);
     expect(withWeather).toEqual(["🗓️ Sat Oct 24\n\nBrunch\n☀️ Clear · 80°\n👕 Top: Sweater\n\nDinner\n👕 Top: Sweater"]);
   });
-});
 
+  it("shows a dress on its own line ahead of any top or bottom", () => {
+    const [text] = formatReply({
+      date: "2026-10-24",
+      outfits: [{ date: "2026-10-24", activity: "Dinner", items: { dress: "Burgundy midi dress.", footwear: "Ankle boots" } }],
+    });
+    expect(text).toBe("🗓️ Sat Oct 24\n\nDinner\n👗 Dress: Burgundy midi dress\n👟 Shoes: Ankle boots");
+  });
+});

@@ -48,6 +48,13 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS creao_runs_message_idx ON creao_runs (message_id);
     `,
   },
+  {
+    id: "002_last_plan",
+    sql: `
+      ALTER TABLE creao_runs ADD COLUMN IF NOT EXISTS plan JSONB;
+      CREATE INDEX IF NOT EXISTS creao_runs_space_created_idx ON creao_runs (space_id, created_at DESC);
+    `,
+  },
 ];
 
 /**
@@ -196,13 +203,33 @@ export async function recordCreaoRun(
     conversationId?: string;
     status: string;
     latencyMs: number;
+    plan?: object;
   },
 ): Promise<void> {
   await db.query(
-    `INSERT INTO creao_runs (space_id, message_id, run_id, conversation_id, status, latency_ms)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [run.spaceId, run.messageId, run.runId ?? null, run.conversationId ?? null, run.status, Math.round(run.latencyMs)],
+    `INSERT INTO creao_runs (space_id, message_id, run_id, conversation_id, status, latency_ms, plan)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      run.spaceId,
+      run.messageId,
+      run.runId ?? null,
+      run.conversationId ?? null,
+      run.status,
+      Math.round(run.latencyMs),
+      run.plan ? JSON.stringify(run.plan) : null,
+    ],
   );
+}
+
+/** The most recent outfit plan sent to this user in the last 7 days, so a follow-up can revise it. */
+export async function lastPlan<T = unknown>(db: Queryable, spaceId: string): Promise<T | undefined> {
+  const res = await db.query<{ plan: T }>(
+    `SELECT plan FROM creao_runs
+     WHERE space_id = $1 AND plan IS NOT NULL AND created_at > now() - interval '7 days'
+     ORDER BY created_at DESC, id DESC LIMIT 1`,
+    [spaceId],
+  );
+  return res.rows[0]?.plan;
 }
 
 export async function loadCursor(db: Queryable, consumer: string): Promise<number> {
@@ -221,5 +248,6 @@ export async function saveCursor(db: Queryable, consumer: string, cursor: number
 
 export async function pruneOldMessages(db: Queryable): Promise<number> {
   const res = await db.query("DELETE FROM messages WHERE created_at < now() - interval '30 days'");
+  await db.query("UPDATE creao_runs SET plan = NULL WHERE plan IS NOT NULL AND created_at < now() - interval '30 days'");
   return res.rowCount ?? 0;
 }

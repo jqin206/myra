@@ -2,13 +2,22 @@ import type { Queryable } from "./db.js";
 import {
   claimMessage,
   finishMessage,
+  lastPlan,
   recentUserMessages,
   recordCreaoRun,
   setTempUnit,
   upsertUser,
 } from "./db.js";
 import { CreaoError, type CreaoOutcome } from "./creao.js";
-import { ERROR_REPLY, INTERIM_REPLY, TEXT_ONLY_REPLY, TIMEOUT_REPLY, formatReply, tempUnitSavedReply } from "./format.js";
+import {
+  ERROR_REPLY,
+  INTERIM_REPLY,
+  TEXT_ONLY_REPLY,
+  TIMEOUT_REPLY,
+  formatReply,
+  tempUnitSavedReply,
+  type OutfitPlan,
+} from "./format.js";
 import type { Incoming } from "./incoming.js";
 import { errorCode, log } from "./log.js";
 import { detectTempUnit, isPreferenceOnly } from "./preferences.js";
@@ -85,7 +94,8 @@ export async function handleIncoming(msg: Incoming, deps: HandlerDeps): Promise<
 
   const timeZone = user.timezone ?? deps.defaultTimezone;
   const history = await recentUserMessages(deps.db, msg.spaceId, msg.messageId, msg.createdAt);
-  const request = buildRequestText({ now: deps.now?.() ?? new Date(), timeZone, history, current: msg.text });
+  const previousPlan = await lastPlan<OutfitPlan>(deps.db, msg.spaceId);
+  const request = buildRequestText({ now: deps.now?.() ?? new Date(), timeZone, history, current: msg.text, previousPlan });
 
   // Sent alongside the Creao run so a slow Photon send never delays planning or the deadline.
   const interim = reply(INTERIM_REPLY, `reply:${msg.messageId}:interim`).catch((error) => {
@@ -122,6 +132,7 @@ export async function handleIncoming(msg: Incoming, deps: HandlerDeps): Promise<
     conversationId: outcome.conversationId,
     status,
     latencyMs,
+    plan: outcome.plan.outfits?.length ? outcome.plan : undefined,
   });
 
   for (const [i, text] of texts.entries()) {

@@ -15,8 +15,8 @@ iPhone ──iMessage──▶ Photon ──Socket.IO "delivery"──▶ myra �
 1. Connects to Photon Beta's event stream (`wss://api.photon.codes/v1/projects/<id>/events/ws`, Socket.IO) and subscribes from the last saved cursor.
 2. Answers only `message.received` events that are iMessage, direct (1:1), sent by a human and received by an agent. It never starts a conversation and never answers its own messages. Non-text messages get "I can only read text right now — just type out your plans!".
 3. Claims the message in `processed_messages` so it is answered exactly once, even across restarts, replays, and overlapping deploys.
-4. Builds the Creao request: today's date in the user's timezone, up to 10 of the user's messages from the last 30 days, and the current message.
-5. Replies "Analyzing your input..." straight away, then starts a Creao run and polls it. The request asks for one outfit per day. If there's no result after 3 minutes it stops waiting (Creao has no cancel API, so the run just finishes on its side and is ignored) and sends "Sorry, your request timed out. Please try again". If the message mentions a temperature unit ("use Celsius", "°F"), that preference is saved for the user and used for all later replies. A message that only sets the unit gets a short confirmation and no Creao run.
+4. Builds the Creao request: today's date in the user's timezone, up to 10 of the user's messages from the last 30 days, the outfits last sent to the user (if any, from the last 7 days), and the current message. With a previous plan, Creao is asked to revise it when the message adds a preference ("no jeans"), changing only the affected items, or to plan from scratch for a new trip.
+5. Replies "Analyzing your input..." straight away, then starts a Creao run and polls it. The request asks for one outfit per day, with a dress or jumpsuit in `items.dress` (shown as a "👗 Dress" line). If there's no result after 3 minutes it stops waiting (Creao has no cancel API, so the run just finishes on its side and is ignored) and sends "Sorry, your request timed out. Please try again". If the message mentions a temperature unit ("use Celsius", "°F"), that preference is saved for the user and used for all later replies. A message that only sets the unit gets a short confirmation and no Creao run.
 6. Formats the outfits as plain text (split after an outfit block when the reply is over ~1,200 characters). Replies use the idempotency keys `reply:<message id>`, `reply:<message id>:<n>` and `reply:<message id>:interim`.
 7. Stores the message for history, marks it handled, and only then advances the Photon cursor.
 
@@ -105,4 +105,4 @@ Deploy to staging first. Production deploys happen after PR review.
 | `processed_messages` | One row per Photon message: `processing` → `replied`. Used to answer each message exactly once. |
 | `users` | One row per conversation: handle, optional timezone / temp unit overrides. |
 | `event_cursor` | Last Photon `seq` fully handled. Only moves forward. |
-| `creao_runs` | Creao run ID, thread ID, status, latency per message. |
+| `creao_runs` | Creao run ID, thread ID, status, latency per message, and the outfit plan sent (used for follow-up revisions; cleared after 30 days). |
