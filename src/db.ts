@@ -1,5 +1,6 @@
 import pg from "pg";
 import type { PlannedDay } from "./requestText.js";
+import type { OnboardingStep } from "./onboarding.js";
 
 export type Queryable = Pick<pg.Pool, "query">;
 
@@ -74,6 +75,15 @@ const MIGRATIONS: { id: string; sql: string }[] = [
     id: "004_interim_rotation",
     sql: `
       ALTER TABLE users ADD COLUMN IF NOT EXISTS interim_count INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
+  {
+    id: "005_onboarding",
+    sql: `
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS clothing TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS style TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS held_text TEXT;
     `,
   },
 ];
@@ -206,18 +216,51 @@ export async function recentUserMessages(
   return res.rows.map((r) => r.text).reverse();
 }
 
-export async function upsertUser(
-  db: Queryable,
-  spaceId: string,
-  handle: string | undefined,
-): Promise<{ timezone: string | null; tempUnit: string | null }> {
-  const res = await db.query<{ timezone: string | null; temp_unit: string | null }>(
+export interface UserRow {
+  timezone: string | null;
+  tempUnit: string | null;
+  onboarding: OnboardingStep | null;
+  clothing: string | null;
+  style: string | null;
+  heldText: string | null;
+}
+
+export async function upsertUser(db: Queryable, spaceId: string, handle: string | undefined): Promise<UserRow> {
+  const res = await db.query<{
+    timezone: string | null;
+    temp_unit: string | null;
+    onboarding: OnboardingStep | null;
+    clothing: string | null;
+    style: string | null;
+    held_text: string | null;
+  }>(
     `INSERT INTO users (space_id, handle) VALUES ($1, $2)
      ON CONFLICT (space_id) DO UPDATE SET handle = COALESCE(EXCLUDED.handle, users.handle), updated_at = now()
-     RETURNING timezone, temp_unit`,
+     RETURNING timezone, temp_unit, onboarding, clothing, style, held_text`,
     [spaceId, handle ?? null],
   );
-  return { timezone: res.rows[0]?.timezone ?? null, tempUnit: res.rows[0]?.temp_unit ?? null };
+  const row = res.rows[0];
+  return {
+    timezone: row?.timezone ?? null,
+    tempUnit: row?.temp_unit ?? null,
+    onboarding: row?.onboarding ?? null,
+    clothing: row?.clothing ?? null,
+    style: row?.style ?? null,
+    heldText: row?.held_text ?? null,
+  };
+}
+
+export async function saveOnboarding(
+  db: Queryable,
+  spaceId: string,
+  patch: { onboarding: OnboardingStep; clothing?: string | null; style?: string | null; heldText?: string | null },
+): Promise<void> {
+  const columns: [string, unknown][] = [["onboarding", patch.onboarding]];
+  if ("clothing" in patch) columns.push(["clothing", patch.clothing]);
+  if ("style" in patch) columns.push(["style", patch.style]);
+  if ("heldText" in patch) columns.push(["held_text", patch.heldText]);
+  const sets = columns.map(([c], i) => `${c} = $${i + 2}`).join(", ");
+  await db.query(`UPDATE users SET ${sets}, updated_at = now() WHERE space_id = $1`, [spaceId, ...columns.map(([, v]) => v)]);
 }
 
 export async function setTempUnit(db: Queryable, spaceId: string, unit: string): Promise<void> {

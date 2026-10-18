@@ -2,8 +2,9 @@ import pg from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { CreaoError } from "../src/creao.js";
 import { claimMessage, loadCursor, nextInterimIndex, migrate, saveCursor } from "../src/db.js";
-import { DATE_REPLY, ERROR_REPLY, INTERIM_REPLIES, LOCATION_REPLY, interimReply, TEXT_ONLY_REPLY, TIMEOUT_REPLY } from "../src/format.js";
+import { DATE_REPLY, ERROR_REPLY, HELP_REPLY, INTERIM_REPLIES, LOCATION_REPLY, interimReply, TEXT_ONLY_REPLY, TIMEOUT_REPLY } from "../src/format.js";
 import { handleIncoming, type HandlerDeps, type Planner } from "../src/handler.js";
+import { CLOTHING_QUESTION, ONBOARDED_REPLY, STYLE_QUESTION } from "../src/onboarding.js";
 import type { IncomingText } from "../src/incoming.js";
 import example from "./fixtures/creao-example.json" with { type: "json" };
 
@@ -25,6 +26,7 @@ d("dedupe / idempotency (Postgres)", () => {
   afterAll(async () => pool?.end());
   beforeEach(async () => {
     await pool.query("TRUNCATE messages, processed_messages, users, event_cursor, creao_runs, planned_days");
+    await pool.query("INSERT INTO users (space_id, onboarding) VALUES ('spc_1', 'done')");
     sent = [];
     requests = [];
   });
@@ -100,7 +102,7 @@ d("dedupe / idempotency (Postgres)", () => {
   it("sends a retried message the next pun, not the one from the crashed attempt", async () => {
     expect(await claimMessage(pool, "m1", "spc_1", "dead-worker", 120)).toBe("claimed");
     // The crashed attempt already used the conversation's first pun.
-    await pool.query("INSERT INTO users (space_id, interim_count) VALUES ('spc_1', 1)");
+    await pool.query("UPDATE users SET interim_count = 1 WHERE space_id = 'spc_1'");
     await pool.query("UPDATE processed_messages SET claimed_at = now() - interval '10 minutes'");
     await handleIncoming(msg("m1"), deps());
     expect(sent[0]).toMatchObject({ text: interimReply("spc_1", 1), idempotencyKey: "reply:m1:interim:1" });
@@ -190,6 +192,52 @@ d("dedupe / idempotency (Postgres)", () => {
     await handleIncoming(msg("m2", "this Saturday", at(2)), deps());
     expect(requests[1]).toContain(`when their previous message is planned for: "Austin — brunch and a hike"`);
     expect(requests[1]).not.toContain("where they'll be");
+  });
+
+  describe("onboarding", () => {
+    beforeEach(async () => {
+      await pool.query("DELETE FROM users");
+    });
+    const texts = () => sent.map((s) => s.text);
+
+    it("greets a new user, asks two questions, then sends their profile with every request", async () => {
+      await handleIncoming(msg("m1", "Hi, is this Myra?", at(5)), deps());
+      expect(texts()).toEqual([HELP_REPLY, CLOTHING_QUESTION]);
+      await handleIncoming(msg("m2", "Menswear", at(4)), deps());
+      expect(texts().at(-1)).toBe(STYLE_QUESTION);
+      await handleIncoming(msg("m3", "Minimalist, mostly neutrals", at(3)), deps());
+      expect(texts().at(-1)).toBe(ONBOARDED_REPLY);
+      expect(requests).toHaveLength(0);
+
+      await handleIncoming(msg("m4", "Austin this Saturday — brunch", at(2)), deps());
+      expect(requests).toHaveLength(1);
+      expect(requests[0]).toContain('- Clothes to suggest: "Menswear"\n- Style: "Minimalist, mostly neutrals"');
+      expect(requests[0]).not.toContain("Hi, is this Myra?");
+      expect(requests[0]).not.toContain('"Menswear"\n- "');
+    });
+
+    it("plans a first message with plans once the questions are answered", async () => {
+      await handleIncoming(msg("m1", "Austin this Saturday — brunch and a hike", at(5)), deps());
+      expect(texts()).toEqual([HELP_REPLY, CLOTHING_QUESTION]);
+      await handleIncoming(msg("m2", "skip", at(4)), deps());
+      await handleIncoming(msg("m3", "Classic", at(3)), deps());
+      expect(requests).toHaveLength(1);
+      expect(requests[0]).toContain('Current message:\n"Austin this Saturday — brunch and a hike"');
+      expect(requests[0]).toContain('- Style: "Classic"');
+      expect(requests[0]).not.toContain("Clothes to suggest");
+      const stored = await pool.query("SELECT message_id, text FROM messages");
+      expect(stored.rows).toEqual([{ message_id: "m3", text: "Austin this Saturday — brunch and a hike" }]);
+      const user = await pool.query("SELECT onboarding, clothing, style, held_text FROM users");
+      expect(user.rows).toEqual([{ onboarding: "done", clothing: null, style: "Classic", held_text: null }]);
+    });
+
+    it("sends the all-set reply when the held message turns out to have nothing to plan", async () => {
+      const none = planner(async () => ({ plan: { outfits: [] } }));
+      await handleIncoming(msg("m1", "Hi! Can you help me pack?", at(5)), deps());
+      await handleIncoming(msg("m2", "Womenswear", at(4)), deps());
+      await handleIncoming(msg("m3", "Boho", at(3)), deps({ planner: none }));
+      expect(texts().at(-1)).toBe(ONBOARDED_REPLY);
+    });
   });
 
   it("answers non-text messages with the text-only reply", async () => {

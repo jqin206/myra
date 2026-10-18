@@ -7,6 +7,7 @@ import {
   pendingQuestion,
   recentUserMessages,
   recordCreaoRun,
+  saveOnboarding,
   savePlannedDays,
   upcomingDays,
   setTempUnit,
@@ -15,6 +16,7 @@ import {
 import { CreaoError, type CreaoOutcome } from "./creao.js";
 import {
   ERROR_REPLY,
+  HELP_REPLY,
   interimReply,
   questionFor,
   TEXT_ONLY_REPLY,
@@ -25,6 +27,7 @@ import {
 } from "./format.js";
 import type { Incoming } from "./incoming.js";
 import { errorCode, log } from "./log.js";
+import { CLOTHING_QUESTION, ONBOARDED_REPLY, STYLE_QUESTION, isGreetingOnly, onboardingAnswer } from "./onboarding.js";
 import { detectTempUnit, isPreferenceOnly } from "./preferences.js";
 import { buildRequestText, isoDate, type PlannedDay } from "./requestText.js";
 
@@ -86,8 +89,40 @@ export async function handleIncoming(msg: Incoming, deps: HandlerDeps): Promise<
     return;
   }
 
-  const stored = { spaceId: msg.spaceId, text: msg.text, createdAt: msg.createdAt };
-  const unit = detectTempUnit(msg.text);
+  // New users answer a couple of questions first; a first message with plans is held and planned once they're done.
+  let current = msg.text;
+  let heldPlans = false;
+  if (user.onboarding !== "done") {
+    if (user.onboarding === null) {
+      await reply(HELP_REPLY, `reply:${msg.messageId}`);
+      await reply(CLOTHING_QUESTION, `reply:${msg.messageId}:2`);
+      await saveOnboarding(deps.db, msg.spaceId, { onboarding: "clothing", heldText: isGreetingOnly(msg.text) ? null : msg.text });
+      await finishMessage(deps.db, msg.messageId, "replied");
+      log.info("onboarding_started", fields);
+      return;
+    }
+    if (user.onboarding === "clothing") {
+      await reply(STYLE_QUESTION, `reply:${msg.messageId}`);
+      await saveOnboarding(deps.db, msg.spaceId, { onboarding: "style", clothing: onboardingAnswer(msg.text) });
+      await finishMessage(deps.db, msg.messageId, "replied");
+      log.info("onboarding_clothing", fields);
+      return;
+    }
+    user.style = onboardingAnswer(msg.text);
+    await saveOnboarding(deps.db, msg.spaceId, { onboarding: "done", style: user.style, heldText: null });
+    if (!user.heldText) {
+      await reply(ONBOARDED_REPLY, `reply:${msg.messageId}`);
+      await finishMessage(deps.db, msg.messageId, "replied");
+      log.info("onboarding_done", fields);
+      return;
+    }
+    current = user.heldText;
+    heldPlans = true;
+    log.info("onboarding_done", { ...fields, held: true });
+  }
+
+  const stored = { spaceId: msg.spaceId, text: current, createdAt: msg.createdAt };
+  const unit = heldPlans ? undefined : detectTempUnit(msg.text);
   if (unit) await setTempUnit(deps.db, msg.spaceId, unit);
   if (unit && isPreferenceOnly(msg.text)) {
     await reply(tempUnitSavedReply(unit), `reply:${msg.messageId}`);
@@ -109,7 +144,8 @@ export async function handleIncoming(msg: Incoming, deps: HandlerDeps): Promise<
     now,
     timeZone,
     history,
-    current: msg.text,
+    current,
+    profile: { clothing: user.clothing, style: user.style },
     plannedDays,
     latestTripDates,
     askedLocationFor: asked?.location ? asked.text : undefined,
@@ -133,6 +169,7 @@ export async function handleIncoming(msg: Incoming, deps: HandlerDeps): Promise<
   try {
     outcome = await deps.planner.run({ request, temp_unit: tempUnit }, controller.signal);
     texts = formatReply(outcome.plan);
+    if (heldPlans && texts.length === 1 && texts[0] === HELP_REPLY) texts = [ONBOARDED_REPLY];
     const question = outcome.plan.outfits?.length ? undefined : questionFor(outcome.plan);
     if (question) status = question.status;
   } catch (error) {
