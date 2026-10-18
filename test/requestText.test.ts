@@ -16,18 +16,18 @@ const now = new Date("2026-10-17T22:48:00Z");
 
 describe("formatToday", () => {
   it("renders the date in the user's timezone", () => {
-    expect(formatToday(now, "America/Los_Angeles")).toBe("Today is Saturday, October 17, 2026 (America/Los_Angeles).");
+    expect(formatToday(now, "America/Los_Angeles")).toBe("Today is Saturday, October 17, 2026 (America/Los_Angeles). Use it only to work out dates the message mentions; it isn't the date of the plans.");
   });
 
   it("rolls over to the next day east of UTC", () => {
     expect(formatToday(new Date("2026-10-17T23:30:00Z"), "Asia/Tokyo")).toBe(
-      "Today is Sunday, October 18, 2026 (Asia/Tokyo).",
+      "Today is Sunday, October 18, 2026 (Asia/Tokyo). Use it only to work out dates the message mentions; it isn't the date of the plans.",
     );
   });
 
   it("uses the correct year around New Year", () => {
     expect(formatToday(new Date("2027-01-01T05:00:00Z"), "America/Los_Angeles")).toBe(
-      "Today is Thursday, December 31, 2026 (America/Los_Angeles).",
+      "Today is Thursday, December 31, 2026 (America/Los_Angeles). Use it only to work out dates the message mentions; it isn't the date of the plans.",
     );
   });
 });
@@ -36,7 +36,7 @@ describe("buildRequestText", () => {
   it("omits the history section when there is none", () => {
     const text = buildRequestText({ now, timeZone: "America/Los_Angeles", history: [], current: "Austin this Saturday" });
     expect(text).toBe(
-      `Today is Saturday, October 17, 2026 (America/Los_Angeles).\n\nCurrent message:\n"Austin this Saturday"\n\n${ONE_TRIP_INSTRUCTION}\n\n${NOT_PLANS_INSTRUCTION}\n\n${DATE_INSTRUCTION}\n\n${LOCATION_INSTRUCTION}\n\n${PER_DAY_INSTRUCTION}\n\n${DRESS_INSTRUCTION}`,
+      `Today is Saturday, October 17, 2026 (America/Los_Angeles). Use it only to work out dates the message mentions; it isn't the date of the plans.\n\nCurrent message:\n"Austin this Saturday"\n\n${ONE_TRIP_INSTRUCTION}\n\n${NOT_PLANS_INSTRUCTION}\n\n${DATE_INSTRUCTION}\n\n${LOCATION_INSTRUCTION}\n\n${PER_DAY_INSTRUCTION}\n\n${DRESS_INSTRUCTION}`,
     );
   });
 
@@ -49,7 +49,7 @@ describe("buildRequestText", () => {
     });
     expect(text).toBe(
       [
-        "Today is Saturday, October 17, 2026 (America/Los_Angeles).",
+        "Today is Saturday, October 17, 2026 (America/Los_Angeles). Use it only to work out dates the message mentions; it isn't the date of the plans.",
         "",
         "Earlier messages from this user (oldest first):",
         '- "I run cold"',

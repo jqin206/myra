@@ -52,7 +52,7 @@ export function formatToday(now: Date, timeZone: string): string {
     year: "numeric",
     timeZone,
   }).format(now);
-  return `Today is ${date} (${timeZone}).`;
+  return `Today is ${date} (${timeZone}). Use it only to work out dates the message mentions; it isn't the date of the plans.`;
 }
 
 const quote = (text: string) => `"${text.replace(/\s+/g, " ").trim()}"`;
