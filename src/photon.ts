@@ -3,16 +3,49 @@ import { io, type Socket } from "socket.io-client";
 import type { Sender } from "./handler.js";
 import { errorCode, log } from "./log.js";
 
-export function createSender(opts: { apiKey: string; projectId: string; baseUrl: string }): Sender {
-  const photon = new Photon({ baseUrl: opts.baseUrl, headers: { Authorization: `Bearer ${opts.apiKey}` } });
+export interface SenderOptions {
+  apiKey: string;
+  projectId: string;
+  baseUrl: string;
+  fetch?: typeof globalThis.fetch;
+  /** How long to wait for a delivery confirmation before sending the next text anyway. */
+  deliveryTimeoutMs?: number;
+  deliveryPollMs?: number;
+}
+
+/**
+ * Photon queues each send and delivers asynchronously, so texts sent back to back can arrive out of
+ * order. `send` resolves once Photon reports the text delivered (or accepted, failed, or the wait
+ * times out), so awaiting each send keeps a multi-part reply in order on the phone.
+ */
+export function createSender(opts: SenderOptions): Sender {
+  const photon = new Photon({ baseUrl: opts.baseUrl, fetch: opts.fetch, headers: { Authorization: `Bearer ${opts.apiKey}` } });
+  const timeoutMs = opts.deliveryTimeoutMs ?? 15_000;
+  const pollMs = opts.deliveryPollMs ?? 250;
   return {
     async send({ spaceId, senderId, text, idempotencyKey }) {
-      await photon.projects.sendMessage({
+      const sent = await photon.projects.sendMessage({
         path: { id: opts.projectId },
         headers: { "idempotency-key": idempotencyKey },
         // No parentMessageId: shared iMessage lines reject threaded replies with 409 SPACE_NOT_SENDABLE.
         body: { spaceId, senderId, content: { type: "text", format: "plain", text } },
       });
+      const messageId = String(sent.id);
+      const started = performance.now();
+      let status: unknown = sent.status;
+      while (status === "dispatched") {
+        if (performance.now() - started >= timeoutMs) {
+          log.warn("delivery_wait_timeout", { spaceId, photonMessageId: messageId, idempotencyKey });
+          return;
+        }
+        await new Promise((r) => setTimeout(r, pollMs));
+        try {
+          status = (await photon.projects.getMessage({ path: { id: opts.projectId, messageId } }))?.status ?? status;
+        } catch (error) {
+          log.warn("delivery_check_failed", { spaceId, photonMessageId: messageId, error: errorCode(error) });
+        }
+      }
+      if (status === "failed") log.warn("delivery_failed", { spaceId, photonMessageId: messageId, idempotencyKey });
     },
   };
 }
