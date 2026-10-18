@@ -15,7 +15,7 @@ import { detectTempUnit, isPreferenceOnly } from "./preferences.js";
 import { buildRequestText } from "./requestText.js";
 
 export interface Sender {
-  send(reply: { spaceId: string; senderId: string; parentMessageId: string; text: string; idempotencyKey: string }): Promise<void>;
+  send(reply: { spaceId: string; senderId: string; text: string; idempotencyKey: string }): Promise<void>;
 }
 
 export interface Planner {
@@ -59,7 +59,6 @@ export async function handleIncoming(msg: Incoming, deps: HandlerDeps): Promise<
     deps.sender.send({
       spaceId: msg.spaceId,
       senderId: msg.senderId,
-      parentMessageId: msg.messageId,
       text,
       idempotencyKey,
     });

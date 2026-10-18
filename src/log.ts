@@ -15,8 +15,11 @@ export const log = {
 
 export function errorCode(error: unknown): string {
   if (error && typeof error === "object") {
-    const e = error as { code?: unknown; status?: unknown; name?: unknown };
+    const e = error as { code?: unknown; status?: unknown; name?: unknown; body?: unknown };
     if (typeof e.code === "string") return e.code;
+    // Photon ApiError carries the problem code (e.g. SPACE_NOT_SENDABLE) in its body.
+    const bodyCode = e.body && typeof e.body === "object" ? (e.body as { code?: unknown }).code : undefined;
+    if (typeof e.status === "number" && typeof bodyCode === "string") return `http_${e.status}_${bodyCode}`;
     if (typeof e.status === "number") return `http_${e.status}`;
     if (typeof e.name === "string") return e.name;
   }

@@ -6,11 +6,12 @@ import { errorCode, log } from "./log.js";
 export function createSender(opts: { apiKey: string; projectId: string; baseUrl: string }): Sender {
   const photon = new Photon({ baseUrl: opts.baseUrl, headers: { Authorization: `Bearer ${opts.apiKey}` } });
   return {
-    async send({ spaceId, senderId, parentMessageId, text, idempotencyKey }) {
+    async send({ spaceId, senderId, text, idempotencyKey }) {
       await photon.projects.sendMessage({
         path: { id: opts.projectId },
         headers: { "idempotency-key": idempotencyKey },
-        body: { spaceId, senderId, parentMessageId, content: { type: "text", format: "plain", text } },
+        // No parentMessageId: shared iMessage lines reject threaded replies with 409 SPACE_NOT_SENDABLE.
+        body: { spaceId, senderId, content: { type: "text", format: "plain", text } },
       });
     },
   };

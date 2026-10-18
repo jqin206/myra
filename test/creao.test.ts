@@ -67,6 +67,18 @@ describe("CreaoClient (capi_ app-scoped key)", () => {
     expect(JSON.stringify(storage.init.headers ?? {})).not.toContain("capi_test");
   });
 
+  it.each([
+    ["raw", (j: string) => j],
+    ["fenced", (j: string) => "```json\n" + j + "\n```"],
+  ])("reads the plan from result.text when there is no artifact (%s JSON)", async (_label, wrap) => {
+    const { fetch } = mockFetch(() =>
+      json({ id: "run_1", status: "completed", result: { text: wrap(JSON.stringify(example)), artifacts: [] } }),
+    );
+    const outcome = await new CreaoClient({ apiKey: "capi_test", agentId: "app_1", fetch }).run(input, signal());
+    expect(outcome.plan.location).toBe("Austin, TX");
+    expect(outcome.plan.outfits).toHaveLength(3);
+  });
+
   it("treats a non-outfit reply (no artifact, JSON text) as empty so the help text is used", async () => {
     const { fetch } = mockFetch(() =>
       json({ id: "run_1", status: "completed", result: { text: '{"response":"I\'m the **Fashion Stylist** — pick a location below"}', artifacts: [] } }),
