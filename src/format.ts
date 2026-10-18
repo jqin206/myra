@@ -121,7 +121,6 @@ function outfitBlock(o: Outfit, showDate: boolean, weather: string | undefined):
   const head = [
     showDate ? formatPlanDate(str(o.date)) : undefined,
     activity && showDate ? stripDay(activity) : activity,
-    str(o.time),
   ]
     .filter(Boolean)
     .join(" · ");

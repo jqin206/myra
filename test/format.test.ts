@@ -16,20 +16,20 @@ describe("formatReply", () => {
         "📍 Austin, TX",
         "🗓️ Sat Jun 14",
         "",
-        "Brunch · 11:00 AM",
+        "Brunch",
         "⛅ Partly cloudy · 94° / 76° · 20% rain",
         "👕 Top: Linen camp-collar shirt",
         "👖 Bottom: Light chino shorts",
         "👟 Shoes: Canvas sneakers",
         "👜 Extras: Sunglasses, Straw hat",
         "",
-        "Hike · Afternoon",
+        "Hike",
         "👕 Top: Moisture-wicking tee",
         "👖 Bottom: Hiking shorts",
         "👟 Shoes: Trail runners",
         "👜 Extras: Cap",
         "",
-        "Dinner downtown · Evening",
+        "Dinner downtown",
         "👕 Top: Short-sleeve knit polo",
         "👖 Bottom: Tapered trousers",
         "👟 Shoes: Leather loafers",
@@ -43,7 +43,7 @@ describe("formatReply", () => {
   it("tolerates missing optional fields", () => {
     const [text, ...rest] = formatReply(missing as OutfitPlan);
     expect(rest).toHaveLength(0);
-    expect(text).toBe(["Brunch", "👕 Top: White tee", "👟 Shoes: Sneakers", "", "7:00 PM"].join("\n"));
+    expect(text).toBe(["Brunch", "👕 Top: White tee", "👟 Shoes: Sneakers"].join("\n"));
     expect(text).not.toMatch(/undefined|null|Bring:|📝|💡|📍|🗓️|Keep it simple/);
   });
 
@@ -71,13 +71,13 @@ describe("formatReply", () => {
     const messages = formatReply(plan);
     expect(messages.length).toBeGreaterThan(1);
     for (const m of messages.slice(0, -1)) expect(m.length).toBeLessThanOrEqual(1200);
-    expect(messages[0]).toMatch(/^📍 New York City, NY\n🗓️ Sat Oct 24\n\n.* · .*\n⛅ /);
+    expect(messages[0]).toMatch(/^📍 New York City, NY\n🗓️ Sat Oct 24\n\n.+\n⛅ /);
     // Every outfit block stays intact within one message.
     for (const outfit of plan.outfits!) {
-      expect(messages.some((m) => m.includes(`${outfit.activity} · ${outfit.time}\n`))).toBe(true);
+      expect(messages.some((m) => m.includes(`${outfit.activity}\n`))).toBe(true);
     }
     // A split never happens inside a block: each later message starts with a block header or the footer.
-    for (const m of messages.slice(1)) expect(m).toMatch(/^(\S.* · .*\n|🎒 Bring:)/);
+    for (const m of messages.slice(1)) expect(m).toMatch(/^(\S.*\n|🎒 Bring:)/);
   });
 });
 
