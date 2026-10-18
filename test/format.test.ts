@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { extractPlanFromBody } from "../src/creao.js";
-import { HELP_REPLY, formatReply, weatherEmoji, type OutfitPlan } from "../src/format.js";
+import { HELP_REPLY, INTERIM_REPLIES, formatReply, interimReply, weatherEmoji, type OutfitPlan } from "../src/format.js";
 import example from "./fixtures/creao-example.json" with { type: "json" };
 import missing from "./fixtures/creao-missing-optionals.json" with { type: "json" };
 import wrapped from "./fixtures/creao-wrapped.json" with { type: "json" };
@@ -165,5 +165,16 @@ describe("formatReply one outfit per day", () => {
       outfits: [{ date: "2026-10-24", activity: "Dinner", items: { dress: "Burgundy midi dress.", footwear: "Ankle boots" } }],
     });
     expect(text).toBe("🗓️ Sat Oct 24\n\nDinner\n👗 Dress: Burgundy midi dress\n👟 Shoes: Ankle boots");
+  });
+});
+
+describe("interimReply", () => {
+  it("picks a pun from the list, the same one for the same message", () => {
+    expect(INTERIM_REPLIES.length).toBeGreaterThan(5);
+    expect(new Set(INTERIM_REPLIES).size).toBe(INTERIM_REPLIES.length);
+    expect(INTERIM_REPLIES).toContain(interimReply("m1"));
+    expect(interimReply("m1")).toBe(interimReply("m1"));
+    const picks = new Set(Array.from({ length: 50 }, (_, i) => interimReply(`msg-${i}`)));
+    expect(picks.size).toBeGreaterThan(3);
   });
 });

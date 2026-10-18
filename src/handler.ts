@@ -13,7 +13,7 @@ import {
 import { CreaoError, type CreaoOutcome } from "./creao.js";
 import {
   ERROR_REPLY,
-  INTERIM_REPLY,
+  interimReply,
   TEXT_ONLY_REPLY,
   TIMEOUT_REPLY,
   formatReply,
@@ -104,7 +104,7 @@ export async function handleIncoming(msg: Incoming, deps: HandlerDeps): Promise<
   const request = buildRequestText({ now, timeZone, history, current: msg.text, plannedDays, latestTripDates });
 
   // Sent alongside the Creao run so a slow Photon send never delays planning or the deadline.
-  const interim = reply(INTERIM_REPLY, `reply:${msg.messageId}:interim`).catch((error) => {
+  const interim = reply(interimReply(msg.messageId), `reply:${msg.messageId}:interim`).catch((error) => {
     log.warn("interim_send_failed", { ...fields, error: errorCode(error) });
   });
 
