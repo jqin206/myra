@@ -40,7 +40,27 @@ export interface OutfitPlan {
 export const TEXT_ONLY_REPLY = "I can only read text right now — just type out your plans!";
 export const HELP_REPLY =
   "Hi, I'm Myra! Send me your itinerary for your next trip or your plans for the next few days, and I'll help you generate an outfit!";
-export const INTERIM_REPLY = "Analyzing your input...";
+export const INTERIM_REPLIES = [
+  "Tailoring your looks...",
+  "Ironing out the details...",
+  "Stitching your outfits together...",
+  "Sizing up your plans...",
+  "Getting our threads together...",
+  "Hemming and hawing over your outfits...",
+  "Buttoning up your looks...",
+  "Zipping through your itinerary...",
+  "Seams like a fun plan, styling now...",
+  "Pressing on with your outfits...",
+  "Weaving in the weather...",
+  "Fitting it all together...",
+];
+
+/** A pun picked from the message ID, so a retried message gets the same text. */
+export function interimReply(messageId: string): string {
+  let hash = 0;
+  for (const ch of messageId) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  return INTERIM_REPLIES[hash % INTERIM_REPLIES.length]!;
+}
 export const TIMEOUT_REPLY = "Sorry, your request timed out. Please try again";
 export const ERROR_REPLY = "Sorry, I couldn't put outfits together just now. Mind sending that again in a minute?";
 export const tempUnitSavedReply = (unit: "celsius" | "fahrenheit") =>

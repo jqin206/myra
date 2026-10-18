@@ -2,7 +2,7 @@ import pg from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { CreaoError } from "../src/creao.js";
 import { claimMessage, loadCursor, migrate, saveCursor } from "../src/db.js";
-import { ERROR_REPLY, INTERIM_REPLY, TEXT_ONLY_REPLY, TIMEOUT_REPLY } from "../src/format.js";
+import { ERROR_REPLY, interimReply, TEXT_ONLY_REPLY, TIMEOUT_REPLY } from "../src/format.js";
 import { handleIncoming, type HandlerDeps, type Planner } from "../src/handler.js";
 import type { IncomingText } from "../src/incoming.js";
 import example from "./fixtures/creao-example.json" with { type: "json" };
@@ -172,7 +172,7 @@ d("dedupe / idempotency (Postgres)", () => {
     });
     await handleIncoming(msg("m1"), deps({ planner: down, timeoutMs: 80 }));
     expect(sent.map((s) => [s.text, s.idempotencyKey])).toEqual([
-      [INTERIM_REPLY, "reply:m1:interim"],
+      [interimReply("m1"), "reply:m1:interim"],
       [TIMEOUT_REPLY, "reply:m1"],
     ]);
     const runs = await pool.query("SELECT status FROM creao_runs");
@@ -184,7 +184,7 @@ d("dedupe / idempotency (Postgres)", () => {
       throw new CreaoError("http_503", "run_9");
     });
     await handleIncoming(msg("m1"), deps({ planner: failing }));
-    expect(sent.map((s) => s.text)).toEqual([INTERIM_REPLY, ERROR_REPLY]);
+    expect(sent.map((s) => s.text)).toEqual([interimReply("m1"), ERROR_REPLY]);
   });
 
   it("starts planning and answers even when the interim send stalls", async () => {
@@ -202,7 +202,7 @@ d("dedupe / idempotency (Postgres)", () => {
 
   it("sends the interim message before the outfits", async () => {
     await handleIncoming(msg("m1"), deps());
-    expect(sent[0]).toMatchObject({ text: INTERIM_REPLY, idempotencyKey: "reply:m1:interim" });
+    expect(sent[0]).toMatchObject({ text: interimReply("m1"), idempotencyKey: "reply:m1:interim" });
     expect(sent[1]!.idempotencyKey).toBe("reply:m1");
   });
 
