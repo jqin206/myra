@@ -176,7 +176,7 @@ d("dedupe / idempotency (Postgres)", () => {
   });
 
   it("uses reply:<id>:<n> keys for split messages", async () => {
-    const long = { ...example, outfits: Array.from({ length: 6 }, (_, i) => ({ ...example.outfits[0], activity: `Stop ${i}`, rationale: "x".repeat(250) })) };
+    const long = { ...example, outfits: Array.from({ length: 6 }, (_, i) => ({ ...example.outfits[0], activity: `Stop ${i}`, items: { ...example.outfits[0].items, top: "x".repeat(250) } })) };
     await handleIncoming(msg("m1"), deps({ planner: planner(async () => ({ plan: long })) }));
     expect(sent.length).toBeGreaterThan(2);
     const keys = sent.map((s) => s.idempotencyKey);
