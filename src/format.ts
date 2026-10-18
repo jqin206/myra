@@ -35,11 +35,13 @@ export interface OutfitPlan {
   extras?: string[] | null;
   assumptions?: string[] | null;
   summary?: string | null;
+  needs_location?: boolean | null;
 }
 
 export const TEXT_ONLY_REPLY = "I can only read text right now — just type out your plans!";
 export const HELP_REPLY =
   "Hi, I'm Myra! Send me your itinerary for your next trip or your plans for the next few days, and I'll help you generate an outfit!";
+export const LOCATION_REPLY = "Where will you be? Send me the city and I'll put together your outfits.";
 export const INTERIM_REPLIES = [
   "Tailoring your looks...",
   "Ironing out the details...",
@@ -183,7 +185,7 @@ export function formatReply(plan: OutfitPlan, limit = SPLIT_AT): string[] {
     byDay.at(-1)!.push(block);
     lastDay = day;
   }
-  if (!byDay.length) return [HELP_REPLY];
+  if (!byDay.length) return [plan.needs_location === true ? LOCATION_REPLY : HELP_REPLY];
 
   // An outfit's own date wins over the plan-level date when they disagree.
   const shownDate = multiDay ? undefined : (days[0] ?? str(plan.date));
