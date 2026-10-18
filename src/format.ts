@@ -28,6 +28,7 @@ export interface OutfitPlan {
   date?: string | null;
   location?: string | null;
   weather?: Weather | null;
+  daily_weather?: (Weather & { date?: string | null })[] | null;
   outfit_count?: number | null;
   outfits?: Outfit[] | null;
   extras?: string[] | null;
@@ -153,7 +154,8 @@ export function formatReply(plan: OutfitPlan, limit = SPLIT_AT): string[] {
     const day = str(o.date) ?? lastDay;
     const newDay = !byDay.length || day !== lastDay;
     // Each day's weather is shown once, above its first outfit; the trip-level weather only stands in for a one-day plan.
-    const weather = newDay ? weatherLine(o.weather ?? (multiDay ? undefined : plan.weather)) : undefined;
+    const daily = Array.isArray(plan.daily_weather) ? plan.daily_weather.find((w) => w && str(w.date) === day) : undefined;
+    const weather = newDay ? weatherLine(o.weather ?? daily ?? (multiDay ? undefined : plan.weather)) : undefined;
     const block = outfitBlock(o, multiDay, weather);
     if (!block) continue;
     if (newDay) byDay.push([]);

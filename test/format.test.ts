@@ -129,6 +129,18 @@ describe("formatReply one outfit per day", () => {
       "Sun Oct 25 · Brunch\n👕 Top: Sweater",
     ]);
   });
+  it("matches daily_weather entries to each day by date", () => {
+    const messages = formatReply({
+      weather: { conditions: "Clear", temp_high: 56 },
+      daily_weather: [
+        { date: "2026-10-25", conditions: "Overcast", temp_high: 59, temp_low: 48 },
+        { date: "2026-10-24", conditions: "Clear sky", temp_high: 56, temp_low: 47 },
+      ],
+      outfits: [day("2026-10-24", "Museums"), day("2026-10-25", "Brunch")],
+    });
+    expect(messages[0]).toContain("Sat Oct 24 · Museums\n☀️ Clear sky · 56° / 47°\n");
+    expect(messages[1]).toContain("Sun Oct 25 · Brunch\n☁️ Overcast · 59° / 48°\n");
+  });
   it("drops a weekday the activity repeats when the date is already shown", () => {
     const text = formatReply({
       outfits: [day("2026-10-24", "Saturday: museums and dinner"), day("2026-10-25", "Brunch and a park walk (Sunday)")],
