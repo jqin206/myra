@@ -24,7 +24,7 @@ d("dedupe / idempotency (Postgres)", () => {
   });
   afterAll(async () => pool?.end());
   beforeEach(async () => {
-    await pool.query("TRUNCATE messages, processed_messages, users, event_cursor, creao_runs");
+    await pool.query("TRUNCATE messages, processed_messages, users, event_cursor, creao_runs, planned_days");
     sent = [];
     requests = [];
   });
@@ -115,23 +115,48 @@ d("dedupe / idempotency (Postgres)", () => {
     expect(last).toContain('Current message:\n"actually dinner is on a rooftop"');
   });
 
-  it("sends the last plan back to Creao so a follow-up can revise it", async () => {
-    await handleIncoming(msg("m1", "Austin this Saturday", new Date(Date.now() - 60_000).toISOString()), deps());
-    expect(requests[0]).not.toContain("Outfits you last sent");
+  const day = (date: string, top: string) => ({ date, activity: "Out", items: { top } });
+  const nyc = {
+    location: "New York, NY",
+    daily_weather: [
+      { date: "2026-10-24", temp_high: 56, conditions: "Clear" },
+      { date: "2026-10-25", temp_high: 59, conditions: "Overcast" },
+    ],
+    outfits: [day("2026-10-24", "Sweater"), day("2026-10-25", "Knit")],
+  };
+  const planned = (request: string) =>
+    JSON.parse(request.split("Outfits already planned for this user, by date (JSON):\n")[1]!.split("\n")[0]!);
+  const at = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000).toISOString();
+
+  it("saves each planned day and sends them, with the most recent trip, to later requests", async () => {
+    await handleIncoming(msg("m1", "NYC next weekend", at(2)), deps({ planner: planner(async () => ({ plan: nyc })) }));
+    expect(requests[0]).not.toContain("Outfits already planned");
     await handleIncoming(msg("m2", "no jeans please"), deps());
-    expect(requests[1]).toContain("Outfits you last sent this user (JSON):");
-    expect(requests[1]).toContain(JSON.stringify(example.outfits[0]!.items.top));
+    expect(planned(requests[1]!)).toEqual([
+      { date: "2026-10-24", location: "New York, NY", weather: { temp_high: 56, conditions: "Clear" }, activity: "Out", items: { top: "Sweater" } },
+      { date: "2026-10-25", location: "New York, NY", weather: { temp_high: 59, conditions: "Overcast" }, activity: "Out", items: { top: "Knit" } },
+    ]);
+    expect(requests[1]).toContain("Most recent trip: 2026-10-24, 2026-10-25.");
   });
 
-  it("doesn't save failed runs or plans older than 7 days as the last plan", async () => {
-    await handleIncoming(msg("m1"), deps());
-    await pool.query("UPDATE creao_runs SET created_at = now() - interval '8 days'");
+  it("replaces only the revised day and keeps the most recent trip", async () => {
+    await handleIncoming(msg("m1", "NYC next weekend", at(3)), deps({ planner: planner(async () => ({ plan: nyc })) }));
+    const revised = { location: "New York, NY", outfits: [day("2026-10-25", "Silk blouse")] };
+    await handleIncoming(msg("m2", "dressier on Sunday", at(2)), deps({ planner: planner(async () => ({ plan: revised })) }));
+    await handleIncoming(msg("m3", "thanks"), deps());
+    expect(planned(requests[2]!).map((d: { items: { top: string } }) => d.items.top)).toEqual(["Sweater", "Silk blouse"]);
+    expect(requests[2]).toContain("Most recent trip: 2026-10-24, 2026-10-25.");
+  });
+
+  it("doesn't send days before today or save failed runs", async () => {
+    await handleIncoming(msg("m1", "NYC next weekend", at(2)), deps({ planner: planner(async () => ({ plan: nyc })) }));
     const failing = planner(async () => {
       throw new CreaoError("failed");
     });
-    await handleIncoming(msg("m2", "hello again"), deps({ planner: failing }));
-    await handleIncoming(msg("m3", "no jeans please"), deps());
-    expect(requests.at(-1)).not.toContain("Outfits you last sent");
+    await handleIncoming(msg("m2", "hello again", at(1)), deps({ planner: failing }));
+    await handleIncoming(msg("m3", "no jeans"), deps({ now: () => new Date("2026-10-25T20:00:00Z") }));
+    expect(planned(requests.at(-1)!).map((d: { date: string }) => d.date)).toEqual(["2026-10-25"]);
+    expect(requests.at(-1)).toContain("Most recent trip: 2026-10-25.");
   });
 
   it("answers non-text messages with the text-only reply", async () => {

@@ -5,6 +5,8 @@ import {
   lastPlan,
   recentUserMessages,
   recordCreaoRun,
+  savePlannedDays,
+  upcomingDays,
   setTempUnit,
   upsertUser,
 } from "./db.js";
@@ -21,7 +23,7 @@ import {
 import type { Incoming } from "./incoming.js";
 import { errorCode, log } from "./log.js";
 import { detectTempUnit, isPreferenceOnly } from "./preferences.js";
-import { buildRequestText } from "./requestText.js";
+import { buildRequestText, isoDate, type PlannedDay } from "./requestText.js";
 
 export interface Sender {
   send(reply: { spaceId: string; senderId: string; text: string; idempotencyKey: string }): Promise<void>;
@@ -94,8 +96,12 @@ export async function handleIncoming(msg: Incoming, deps: HandlerDeps): Promise<
 
   const timeZone = user.timezone ?? deps.defaultTimezone;
   const history = await recentUserMessages(deps.db, msg.spaceId, msg.messageId, msg.createdAt);
-  const previousPlan = await lastPlan<OutfitPlan>(deps.db, msg.spaceId);
-  const request = buildRequestText({ now: deps.now?.() ?? new Date(), timeZone, history, current: msg.text, previousPlan });
+  const now = deps.now?.() ?? new Date();
+  const today = isoDate(now, timeZone);
+  const plannedDays = await upcomingDays(deps.db, msg.spaceId, today);
+  const latest = await lastPlan<OutfitPlan>(deps.db, msg.spaceId);
+  const latestTripDates = planDates(latest).filter((d) => d >= today);
+  const request = buildRequestText({ now, timeZone, history, current: msg.text, plannedDays, latestTripDates });
 
   // Sent alongside the Creao run so a slow Photon send never delays planning or the deadline.
   const interim = reply(INTERIM_REPLY, `reply:${msg.messageId}:interim`).catch((error) => {
@@ -132,12 +138,33 @@ export async function handleIncoming(msg: Incoming, deps: HandlerDeps): Promise<
     conversationId: outcome.conversationId,
     status,
     latencyMs,
-    plan: outcome.plan.outfits?.length ? outcome.plan : undefined,
+    // Only a plan with a date not planned before is a new trip; revisions of planned dates keep the latest trip as is.
+    plan: planDates(outcome.plan).some((d) => !plannedDays.some((p) => p.date === d)) ? outcome.plan : undefined,
   });
+  await savePlannedDays(deps.db, msg.spaceId, toPlannedDays(outcome.plan));
 
   for (const [i, text] of texts.entries()) {
     await reply(text, i === 0 ? `reply:${msg.messageId}` : `reply:${msg.messageId}:${i + 1}`);
   }
   await finishMessage(deps.db, msg.messageId, "replied", stored);
   log.info("replied", { ...fields, status, parts: texts.length, latencyMs: Math.round(latencyMs), runId: outcome.runId });
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function planDates(plan: OutfitPlan | undefined): string[] {
+  const dates = (plan?.outfits ?? []).map((o) => o?.date).filter((d): d is string => !!d && ISO_DATE.test(d));
+  return [...new Set(dates)];
+}
+
+/** One saved day per outfit date, with that day's weather from `daily_weather` (or the plan's weather for a one-day plan). */
+export function toPlannedDays(plan: OutfitPlan): PlannedDay[] {
+  const dates = planDates(plan);
+  return dates.map((date) => {
+    const outfit = plan.outfits!.find((o) => o?.date === date)!;
+    const daily = plan.daily_weather?.find((w) => w?.date === date);
+    const { date: _d, ...dailyWeather } = daily ?? {};
+    const weather = outfit.weather ?? (daily ? dailyWeather : dates.length === 1 ? plan.weather : undefined);
+    return { date, location: plan.location, weather, outfit: { activity: outfit.activity, items: outfit.items } };
+  });
 }

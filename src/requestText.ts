@@ -1,11 +1,20 @@
-import type { OutfitPlan } from "./format.js";
+import type { Outfit, Weather } from "./format.js";
+
+/** One saved day of outfits, so a later message that mentions this date can revise it. */
+export interface PlannedDay {
+  date: string;
+  location?: string | null;
+  weather?: Weather | null;
+  outfit: Pick<Outfit, "activity" | "items">;
+}
 
 export interface RequestTextInput {
   now: Date;
   timeZone: string;
   history: string[];
   current: string;
-  previousPlan?: OutfitPlan;
+  plannedDays?: PlannedDay[];
+  latestTripDates?: string[];
 }
 
 export const HISTORY_LIMIT = 10;
@@ -15,19 +24,12 @@ export const ONE_TRIP_INSTRUCTION =
   "Plan exactly one trip. If the current message describes a trip or itinerary, plan only that trip. If it only adds or changes preferences, apply them to the most recent trip only (the outfits above if they're listed, otherwise the latest itinerary among the earlier messages). Earlier messages are context for preferences; never combine several trips in one plan.";
 export const DRESS_INSTRUCTION =
   'If an outfit is built around a dress or jumpsuit, put it in that outfit\'s "items.dress" field and leave "top" and "bottom" empty.';
-export const REVISE_INSTRUCTION =
-  "If the current message changes or adds preferences for these outfits, return the full revised plan for the same trip: keep the same dates, location, activities and weather, and change only the items the new preference affects. If the current message is a new trip or itinerary, ignore these outfits and plan from scratch.";
+export const PLANNED_DAYS_INSTRUCTION =
+  'Work out which dates the current message is about. If it mentions dates (or days such as "Saturday") that are already planned above, revise only those dates: start from the planned outfit, keep that date\'s location and weather unless the message changes them, and change what the message asks for. If it mentions dates that aren\'t planned above, treat it as a new itinerary and plan those dates. If it mentions no date and only adds or changes preferences, revise every date of the most recent trip. Return only the dates you planned or revised, not the other planned dates. Earlier messages are context for preferences.';
 
-/** The parts of a plan Creao needs to revise it; rationale and assumptions are left out to keep the request short. */
-function compactPlan(plan: OutfitPlan): object {
-  return {
-    date: plan.date,
-    location: plan.location,
-    daily_weather: plan.daily_weather ?? undefined,
-    weather: plan.daily_weather ? undefined : plan.weather,
-    outfits: (plan.outfits ?? []).map((o) => ({ date: o.date, activity: o.activity, time: o.time, items: o.items })),
-    extras: plan.extras,
-  };
+/** YYYY-MM-DD for `now` in the given timezone. */
+export function isoDate(now: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone }).format(now);
 }
 
 export function formatToday(now: Date, timeZone: string): string {
@@ -43,18 +45,26 @@ export function formatToday(now: Date, timeZone: string): string {
 
 const quote = (text: string) => `"${text.replace(/\s+/g, " ").trim()}"`;
 
-export function buildRequestText({ now, timeZone, history, current, previousPlan }: RequestTextInput): string {
+export function buildRequestText({
+  now,
+  timeZone,
+  history,
+  current,
+  plannedDays = [],
+  latestTripDates = [],
+}: RequestTextInput): string {
   const sections = [formatToday(now, timeZone)];
   const recent = history.slice(-HISTORY_LIMIT);
   if (recent.length) {
     sections.push(["Earlier messages from this user (oldest first):", ...recent.map((t) => `- ${quote(t)}`)].join("\n"));
   }
-  if (previousPlan?.outfits?.length) {
-    sections.push(`Outfits you last sent this user (JSON):\n${JSON.stringify(compactPlan(previousPlan))}`);
+  if (plannedDays.length) {
+    const days = plannedDays.map((d) => ({ date: d.date, location: d.location, weather: d.weather, ...d.outfit }));
+    sections.push(`Outfits already planned for this user, by date (JSON):\n${JSON.stringify(days)}`);
+    if (latestTripDates.length) sections.push(`Most recent trip: ${latestTripDates.join(", ")}.`);
   }
   sections.push(`Current message:\n${quote(current)}`);
-  sections.push(ONE_TRIP_INSTRUCTION);
-  if (previousPlan?.outfits?.length) sections.push(REVISE_INSTRUCTION);
+  sections.push(plannedDays.length ? PLANNED_DAYS_INSTRUCTION : ONE_TRIP_INSTRUCTION);
   sections.push(PER_DAY_INSTRUCTION, DRESS_INSTRUCTION);
   return sections.join("\n\n");
 }

@@ -5,7 +5,8 @@ import {
   formatToday,
   ONE_TRIP_INSTRUCTION,
   PER_DAY_INSTRUCTION,
-  REVISE_INSTRUCTION,
+  isoDate,
+  PLANNED_DAYS_INSTRUCTION,
 } from "../src/requestText.js";
 
 const now = new Date("2026-10-17T22:48:00Z");
@@ -78,33 +79,39 @@ describe("buildRequestText", () => {
     expect(text).toContain('"line 1 line 2"');
   });
 
-  it("sends the previous plan, without rationale or assumptions, and asks for a revision", () => {
-    const previousPlan = {
-      date: "2026-10-24",
-      location: "New York, NY",
-      weather: { temp_high: 56, temp_low: 47 },
-      daily_weather: [{ date: "2026-10-24", temp_high: 56, temp_low: 47 }],
-      outfits: [
-        { date: "2026-10-24", activity: "Museums", time: "11:00 AM", items: { top: "Sweater", bottom: "Jeans" }, rationale: "secret why" },
-      ],
-      assumptions: ["secret note"],
-    };
-    const text = buildRequestText({ now, timeZone: "UTC", history: [], current: "no jeans please", previousPlan });
-    const json = JSON.parse(text.split("Outfits you last sent this user (JSON):\n")[1]!.split("\n")[0]!);
-    expect(json).toEqual({
-      date: "2026-10-24",
-      location: "New York, NY",
-      daily_weather: [{ date: "2026-10-24", temp_high: 56, temp_low: 47 }],
-      outfits: [{ date: "2026-10-24", activity: "Museums", time: "11:00 AM", items: { top: "Sweater", bottom: "Jeans" } }],
+  it("sends the planned days and the most recent trip, and asks Creao to revise by date", () => {
+    const plannedDays = [
+      { date: "2026-10-24", location: "Los Angeles, CA", weather: { temp_high: 80 }, outfit: { activity: "Lunch", items: { top: "Tee" } } },
+      { date: "2026-10-30", location: "New York, NY", weather: null, outfit: { activity: "Shopping", items: { dress: "Wrap dress" } } },
+    ];
+    const text = buildRequestText({
+      now,
+      timeZone: "UTC",
+      history: [],
+      current: "make Oct 24 dressier",
+      plannedDays,
+      latestTripDates: ["2026-10-30"],
     });
-    expect(text).not.toContain("secret");
-    expect(text.indexOf("Outfits you last sent")).toBeLessThan(text.indexOf("Current message:"));
-    expect(text).toContain(`"no jeans please"\n\n${ONE_TRIP_INSTRUCTION}\n\n${REVISE_INSTRUCTION}`);
+    const json = JSON.parse(text.split("Outfits already planned for this user, by date (JSON):\n")[1]!.split("\n")[0]!);
+    expect(json).toEqual([
+      { date: "2026-10-24", location: "Los Angeles, CA", weather: { temp_high: 80 }, activity: "Lunch", items: { top: "Tee" } },
+      { date: "2026-10-30", location: "New York, NY", weather: null, activity: "Shopping", items: { dress: "Wrap dress" } },
+    ]);
+    expect(text).toContain("Most recent trip: 2026-10-30.");
+    expect(text).toContain(`"make Oct 24 dressier"\n\n${PLANNED_DAYS_INSTRUCTION}\n\n${PER_DAY_INSTRUCTION}`);
+    expect(text).not.toContain(ONE_TRIP_INSTRUCTION);
   });
 
-  it("skips the revision section when there is no previous plan with outfits", () => {
-    const text = buildRequestText({ now, timeZone: "UTC", history: [], current: "hi", previousPlan: { outfits: [] } });
-    expect(text).not.toContain("Outfits you last sent");
-    expect(text).not.toContain(REVISE_INSTRUCTION);
+  it("uses the one-trip instruction when nothing is planned", () => {
+    const text = buildRequestText({ now, timeZone: "UTC", history: [], current: "hi", plannedDays: [] });
+    expect(text).not.toContain("Outfits already planned");
+    expect(text).toContain(ONE_TRIP_INSTRUCTION);
+  });
+});
+
+describe("isoDate", () => {
+  it("uses the date in the given timezone", () => {
+    expect(isoDate(now, "America/Los_Angeles")).toBe("2026-10-17");
+    expect(isoDate(new Date("2026-10-17T23:30:00Z"), "Asia/Tokyo")).toBe("2026-10-18");
   });
 });
