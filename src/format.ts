@@ -57,11 +57,41 @@ export const INTERIM_REPLIES = [
   "Fitting it all together...",
 ];
 
-/** A pun picked from the message ID, so a retried message gets the same text. */
-export function interimReply(messageId: string): string {
-  let hash = 0;
-  for (const ch of messageId) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-  return INTERIM_REPLIES[hash % INTERIM_REPLIES.length]!;
+/**
+ * The conversation's `n`th pun. Each conversation goes through every pun in a
+ * shuffled order before any repeats, then reshuffles for the next round.
+ */
+export function interimReply(spaceId: string, n: number): string {
+  const len = INTERIM_REPLIES.length;
+  return INTERIM_REPLIES[punOrder(spaceId, Math.floor(n / len))[n % len]!]!;
+}
+
+function punOrder(spaceId: string, round: number): number[] {
+  const order = shuffled(INTERIM_REPLIES.length, `${spaceId}:${round}`);
+  // Don't let the last pun of one round open the next.
+  if (round > 0 && order.length > 2 && order[0] === shuffled(order.length, `${spaceId}:${round - 1}`).at(-1)) {
+    [order[0], order[1]] = [order[1]!, order[0]!];
+  }
+  return order;
+}
+
+/** A deterministic Fisher–Yates shuffle of 0..len-1 seeded by `seed`. */
+function shuffled(len: number, seed: string): number[] {
+  let state = 2166136261;
+  for (const ch of seed) state = Math.imul(state ^ ch.charCodeAt(0), 16777619) >>> 0;
+  const random = () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const order = Array.from({ length: len }, (_, i) => i);
+  for (let i = len - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [order[i], order[j]] = [order[j]!, order[i]!];
+  }
+  return order;
 }
 export const TIMEOUT_REPLY = "Sorry, your request timed out. Please try again";
 export const ERROR_REPLY = "Sorry, I couldn't put outfits together just now. Mind sending that again in a minute?";

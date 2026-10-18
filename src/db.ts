@@ -70,6 +70,12 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       );
     `,
   },
+  {
+    id: "004_interim_rotation",
+    sql: `
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS interim_count INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];
 
 /**
@@ -172,6 +178,15 @@ export async function finishMessage(
     messageId,
     status,
   ]);
+}
+
+/** Takes the conversation's next pun position; every attempt, including a retry, gets a new one. */
+export async function nextInterimIndex(db: Queryable, spaceId: string): Promise<number> {
+  const res = await db.query<{ idx: number }>(
+    "UPDATE users SET interim_count = interim_count + 1 WHERE space_id = $1 RETURNING interim_count - 1 AS idx",
+    [spaceId],
+  );
+  return res.rows[0]?.idx ?? 0;
 }
 
 export async function recentUserMessages(

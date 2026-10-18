@@ -169,13 +169,29 @@ describe("formatReply one outfit per day", () => {
 });
 
 describe("interimReply", () => {
-  it("picks a pun from the list, the same one for the same message", () => {
-    expect(INTERIM_REPLIES.length).toBeGreaterThan(5);
-    expect(new Set(INTERIM_REPLIES).size).toBe(INTERIM_REPLIES.length);
-    expect(INTERIM_REPLIES).toContain(interimReply("m1"));
-    expect(interimReply("m1")).toBe(interimReply("m1"));
-    const picks = new Set(Array.from({ length: 50 }, (_, i) => interimReply(`msg-${i}`)));
-    expect(picks.size).toBeGreaterThan(3);
+  const n = INTERIM_REPLIES.length;
+  const round = (space: string, r: number) => Array.from({ length: n }, (_, i) => interimReply(space, r * n + i));
+
+  it("has enough distinct puns", () => {
+    expect(n).toBeGreaterThan(5);
+    expect(new Set(INTERIM_REPLIES).size).toBe(n);
+  });
+
+  it("uses every pun once per round, reshuffled each round", () => {
+    for (let r = 0; r < 4; r++) expect(new Set(round("spc_1", r)).size).toBe(n);
+    expect(round("spc_1", 1)).not.toEqual(round("spc_1", 0));
+    expect(interimReply("spc_1", 5)).toBe(interimReply("spc_1", 5));
+  });
+
+  it("never repeats a pun across a round boundary", () => {
+    for (let s = 0; s < 200; s++) {
+      for (let r = 1; r < 4; r++) expect(interimReply(`spc_${s}`, r * n)).not.toBe(interimReply(`spc_${s}`, r * n - 1));
+    }
+  });
+
+  it("gives different conversations different orders", () => {
+    const firsts = new Set(Array.from({ length: 50 }, (_, s) => round(`spc_${s}`, 0).join("|")));
+    expect(firsts.size).toBeGreaterThan(40);
   });
 });
 
